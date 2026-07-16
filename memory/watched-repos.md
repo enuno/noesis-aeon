@@ -3,4 +3,4 @@ type: Reference
 ---
 
 # Watched Repos
-- aeonfun/aeon
+- aaronjmars/aeon
