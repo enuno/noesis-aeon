@@ -1,0 +1,80 @@
+{
+  "root": "card_soul",
+  "state": {},
+  "elements": {
+    "card_soul": {
+      "type": "Card",
+      "props": {
+        "title": "soul built — Elvis Nuno (@NunoElvis)"
+      },
+      "children": [
+        "stack_main"
+      ]
+    },
+    "stack_main": {
+      "type": "Stack",
+      "props": {
+        "direction": "vertical",
+        "gap": "md"
+      },
+      "children": [
+        "text_identity",
+        "sep1",
+        "text_sources",
+        "sep2",
+        "text_files",
+        "sep3",
+        "text_trait",
+        "sep4",
+        "text_action"
+      ]
+    },
+    "text_identity": {
+      "type": "Text",
+      "props": {
+        "text": "identity: Infrastructure engineer and community ISP builder from Missoula, MT — bitcoin mining automation (TerraHash Stack), rural broadband (PNWRBA), civil rights accountability (MISJustice Alliance), and privacy infrastructure.",
+        "variant": "body"
+      }
+    },
+    "sep1": {
+      "type": "Separator"
+    },
+    "text_sources": {
+      "type": "Text",
+      "props": {
+        "text": "sources: X (websearch, http-400 on XAI API) + 4 links (DynamicCareerCanvas, GitHub) + web search (ILSR, communitynetworks.org, Althea Medium piece, rynocrypto.com)",
+        "variant": "body"
+      }
+    },
+    "sep2": {
+      "type": "Separator"
+    },
+    "text_files": {
+      "type": "Text",
+      "props": {
+        "text": "files: soul/SOUL.md, soul/STYLE.md, soul/examples/good-outputs.md",
+        "variant": "body"
+      }
+    },
+    "sep3": {
+      "type": "Separator"
+    },
+    "text_trait": {
+      "type": "Text",
+      "props": {
+        "text": "Most distinctive trait: he treats decentralization as an engineering discipline with three pass/fail criteria (reduce complexity, improve security, viable economic model) — and he has the operational receipts to prove each choice. Voice is direct, concrete, allergic to hype, anchored in real deployed infrastructure.",
+        "variant": "body"
+      }
+    },
+    "sep4": {
+      "type": "Separator"
+    },
+    "text_action": {
+      "type": "Text",
+      "props": {
+        "text": "review + edit in the dashboard Soul tab, then Pull to refresh.",
+        "variant": "caption"
+      }
+    }
+  }
+}
