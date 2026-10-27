@@ -1,0 +1,18 @@
+{
+  "skill": "action-converter",
+  "last_analyzed": "2026-10-27T21:03:03Z",
+  "quality_score": 2,
+  "assessment": "Bootstrap actions match the repo (template MEMORY.md, empty SOUL.md, digest off, TerraHash checklist, source counts), but the Discord-secrets rationale is invented: the skill cannot see channel secrets and aeon.yml enables Telegram.",
+  "flags": [
+    "unverifiable_claim"
+  ],
+  "avg_score": 2,
+  "history": [
+    {
+      "date": "2026-10-27",
+      "score": 2,
+      "ts": "2026-10-27T21:03:03Z",
+      "harness": "grok"
+    }
+  ]
+}
