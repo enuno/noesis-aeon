@@ -9,16 +9,12 @@ name: Setup Telegram Commands
 #     setup needs no manual step;
 #   • the dashboard's "Re-register commands" button (POST /api/telegram/commands);
 #   • whenever aeon.yml changes on main, so the menu never drifts from the enabled set;
-#   • daily at 06:00 UTC — a belt-and-suspenders re-register in case a push was missed
-#     or Telegram dropped the command list; idempotent, so a no-op when already current;
 #   • on demand from the Actions tab → Run workflow.
 # All paths read TELEGRAM_BOT_TOKEN server-side (no token pasting). No-ops silently on
 # forks without TELEGRAM_BOT_TOKEN configured.
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0 6 * * *'   # daily safety re-register (push trigger already keeps it live)
   push:
     branches: [main]
     paths: ['aeon.yml']
@@ -28,10 +24,10 @@ permissions:
 
 jobs:
   setup:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.AEON_RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Push command list + menu button
         env:

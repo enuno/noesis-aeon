@@ -1,13 +1,20 @@
 ---
-type: Skill
-name: Vuln Tracker
-category: dev
+name: vuln-tracker
 description: One lifecycle poll over everything vuln-scanner produces - PR and advisory status, PVR triage transitions, and pending-disclosure aging, with a stars-secured impact headline and one action queue.
-var: ""
-mode: write
-tags: [meta, security, github]
-depends_on: [vuln-scanner]
-requires: [GH_TOKEN?, GH_GLOBAL?]
+metadata:
+  title: Vuln Tracker
+  category: dev
+  var: ""
+  mode: write
+  tags:
+    - meta
+    - security
+    - github
+  depends_on:
+    - vuln-scanner
+  requires:
+    - GH_TOKEN?
+    - GH_GLOBAL?
 ---
 
 > **${var}** — Scope selector for the lifecycle poll:
@@ -67,11 +74,17 @@ This arm cross-references `memory/vuln-scanned.json` against live GitHub state a
 
 ### A1. Load the canonical scan history
 
+**`memory/vuln-scanned.json` may be a flat top-level array of scan rows, not a `{scans: [...]}` object** - vuln-scanner writes the flat shape. Read it in a way that accepts both:
+
 ```bash
-jq -c '.scans[]' memory/vuln-scanned.json 2>/dev/null
+# Accepts both the flat `[ {repo,scanned_at,findings,channel}, ... ]` shape
+# and the legacy `{scans: [...]}` object.
+jq -c 'if type=="array" then .[] else (.scans[]? // empty) end' memory/vuln-scanned.json 2>/dev/null
 ```
 
-If `memory/vuln-scanned.json` doesn't exist or has no `scans` array, log `VULN_TRACKER_SKIP: no scan history` for this arm and skip Arm A (no notification section — first runs of `vuln-scanner` haven't happened yet). In a `full` poll, continue to Arm B/C.
+A bare `jq -c '.scans[]'` **errors** on a flat-array file (`Cannot index array with string "scans"`) and, with `2>/dev/null` swallowing the error, silently yields zero rows - so the arm reads an empty scan history and reports only what other passes happen to surface. The `if type=="array"` guard is the fix; it keeps the legacy object shape working too.
+
+If `memory/vuln-scanned.json` doesn't exist or the parsed row count is 0, log `VULN_TRACKER_SKIP: no scan history` for this arm and skip Arm A (no notification section - first runs of `vuln-scanner` haven't happened yet). In a `full` poll, continue to Arm B/C.
 
 Each scan entry has at minimum: `repo`, `scanned_at`, `findings`, `channel`, `severity`. Public-PR entries also have `pr` (URL). Pending-disclosure entries have `draft_at` and `patch_branch`. Skipped entries have `reason`.
 
@@ -79,21 +92,27 @@ Each scan entry has at minimum: `repo`, `scanned_at`, `findings`, `channel`, `se
 
 ### A2. Pull all bot-authored security PRs from GitHub
 
-`vuln-scanner` opens PRs with **title prefix `fix(security):`** and **branch prefix `security/`**. Title prefix is the more reliable signal across full history.
+`vuln-scanner` opens security-fix PRs on a **`security/`** branch. The **title** varies: dependency-bump PRs use **`fix(deps):`** (the A5a template is `fix(deps): bump <pkg> to patch <CVE>`), and older or hand-written ones use **`fix(security):`** or a bare **`security:`**. **Match all three title prefixes, and treat the `security/` branch prefix as the real invariant** - the branch name is mandated by A5a, the title wording is not.
 
-`gh search prs --json` does **not** expose `headRefName` — that field is only available via GraphQL. Use title-prefix as primary, GraphQL as optional belt-and-suspenders.
+> **Do not filter on `fix(security):` alone.** vuln-scanner's dominant output is `fix(deps):`, so a `fix(security):`-only filter silently drops most in-flight security PRs - that is how `alibaba/open-code-review#541` (conflicted, lint-failing, one unaddressed review) was missed by a poll while other PRs were tracked. Also exclude `docs(security):` - those are `security-sync` website PRs, not disclosures.
 
-The bot author is whoever the workflow uses (typically `github-actions[bot]` or a dedicated account configured in the workflow). Determine the author from `aeon.yml` or the workflow file; default to whatever account opened the most recent `fix(security):` PR you can find.
+`gh search prs --json` does **not** expose `headRefName` - that field is only available via GraphQL. So run **both** passes below every time and union them on `repository + number`; neither alone is complete.
 
-**Primary (title prefix, works everywhere):**
+The bot author is whoever the workflow uses (typically `github-actions[bot]` or a dedicated account configured in the workflow). Determine the author from `aeon.yml` or the workflow file; default to whatever account opened the most recent security-fix PR (any of the prefixes above) you can find.
+
+**Pass 1 (title prefixes, works everywhere):**
 
 ```bash
 BOT_AUTHOR="<resolved bot author>"
 gh search prs --author "$BOT_AUTHOR" --json number,title,url,state,createdAt,closedAt,repository --limit 200 \
-  | jq '[.[] | select(.title | startswith("fix(security):"))]'
+  | jq '[.[] | select(
+      (.title | startswith("fix(deps):")) or
+      (.title | startswith("fix(security):")) or
+      (.title | startswith("security:"))
+    )]'
 ```
 
-**Optional (GraphQL, picks up branch-prefix-only PRs without `fix(security):` title):**
+**Pass 2 (GraphQL, required - picks up every `security/` branch whatever the title says):**
 
 ```bash
 gh api graphql -f query='
@@ -109,7 +128,7 @@ gh api graphql -f query='
     | select((.headRefName // "") | startswith("security/"))]'
 ```
 
-Union the two result sets, dedup by URL.
+Union the two result sets, dedup by `repository + number` (equivalently, by URL).
 
 Cross-reference with `vuln-scanned.json`:
 - PR present in JSON → use JSON's `severity` / `cwe` / `note` for the row.
@@ -292,7 +311,7 @@ Record Arm A status `VULN_TRACKER_OK` for the log.
 
 ## Arm B — PVR triage state  (scope `full`, `pvr`, or a bare `GHSA-…`)
 
-`pvr-watchlist` monitors repos *waiting to open* PVR. This arm monitors PVRs that have **already been submitted** and tracks their lifecycle: `triage` → `draft` (accepted) → `published` (public) or `withdrawn` (rejected). Without this, submitted advisories sit unmonitored until manually recalled from memory.
+`vuln-scanner`'s re-submit arm (`var=resubmit`, the former `pvr-watchlist`) monitors repos *waiting to open* PVR. This arm monitors PVRs that have **already been submitted** and tracks their lifecycle: `triage` → `draft` (accepted) → `published` (public) or `withdrawn` (rejected). Without this, submitted advisories sit unmonitored until manually recalled from memory.
 
 Source of truth: `memory/pending-disclosures/*.md` files with `channel: pvr` frontmatter. Each such file must have `ghsa`, `repo`, `state`, `submitted_at` fields (full schema below).
 
@@ -338,13 +357,13 @@ Expected outcomes:
 | HTTP 403 | Private advisory, we don't have read access — state unknown, treat as still `triage` |
 | HTTP 404 | Advisory deleted / repo private / GHSA invalid — flag as `not-found` |
 
-**Fallback:** `gh api` uses `GH_TOKEN` internally (workflow wires `GH_GLOBAL` for the elevated advisory read). If `gh` is somehow unavailable, fall back to:
+**Fallback:** `gh api` uses `GH_TOKEN` internally (workflow wires `GH_GLOBAL` for the elevated advisory read). If `gh` is somehow unavailable, fall back to `./secretcurl` with the `{GH_TOKEN}` placeholder (same token; `GH_GLOBAL` itself is not a substitutable name):
 ```bash
-curl -s -H "Authorization: Bearer $GH_GLOBAL" \
+./secretcurl -s -H "Authorization: Bearer {GH_TOKEN}" \
   "https://api.github.com/repos/${REPO}/security-advisories/${GHSA}" \
   | grep -o '"state":"[a-z]*"'
 ```
-(Note: a bare `$SECRET` on the command line is refused by the Bash permission layer, so `gh api` is the reliable path here — or route the `curl` through `./secretcurl` with a `{GH_GLOBAL}` placeholder.)
+(Never write a raw `curl` with `$GH_GLOBAL` / `$GH_TOKEN`: a bare `$SECRET` on the command line is refused by the Bash permission layer. `gh api` stays the primary path.)
 
 ### B3. Detect state changes
 
@@ -470,7 +489,7 @@ Resolution rules:
 1. **Check frontmatter `status:` first** — map the literal value to a state:
    - `superseded-upstream` → `superseded-upstream`
    - `submitted`, `submitted-via-pvr`, `disclosed-via-pr-{N}`, `email-sent` → `submitted` or `covered-by-pr`
-   - `pending-operator-send` **with `auto_send: true`** → `pending` (the `disclosure-emailer` will send it autonomously — not a human task)
+   - `pending-operator-send` **with `auto_send: true`** → `pending` (`vuln-scanner`'s disclose arm, `var=disclose`, sends it autonomously - not a human task)
    - `pending-operator-send` (without `auto_send: true`), `queued for operator manual send`, `email-failed`, any string mentioning "operator" → `operator-todo`
    - `pending`, blank, or missing → fall through to rule 2
 
@@ -602,7 +621,7 @@ Only include the Arm B / Arm C lines for arms that actually ran under the curren
 ## Required Env Vars
 
 - `GH_TOKEN` / `GITHUB_TOKEN` — GitHub read token for Arm A's PR/comment/repo/advisory reads and the PVR-state endpoint. `repo` scope is enough. Present by default in GitHub Actions.
-- `GH_GLOBAL` — GitHub PAT with `public_repo` + `repository_advisories:write` scope, used by Arm B to read the triage state of **private/unpublished** advisories you submitted. Same token used by `vuln-scanner` and `pvr-watchlist`. Without it, Arm B advisory reads may 403 (treated as still `triage`).
+- `GH_GLOBAL` — GitHub PAT with `public_repo` + `repository_advisories:write` scope, used by Arm B to read the triage state of **private/unpublished** advisories you submitted. Same token `vuln-scanner` uses (all arms). Without it, Arm B advisory reads may 403 (treated as still `triage`).
 - `AEON_PVR_TRACKING_ISSUE` (optional) — internal tracking-issue reference for Arm B cross-linking (else resolved from `aeon.yml` `pvr_triage.tracking_issue:`, else skipped).
 - Arm C requires no env vars — all its data comes from local files written by `vuln-scanner`.
 
@@ -640,10 +659,10 @@ Set by `vuln-scanner` / operator / cleanup chores:
 
 - (blank or missing) — pending; falls through to the PR-status cross-ref
 - `pending` — same as blank
-- `pending-operator-send` **with `auto_send: true`** — queued for autonomous send by `disclosure-emailer`; classify as `pending` (NOT operator-todo). It should flip to `email-sent` within a day; if it lingers armed-but-unsent, that means `RESEND_API_KEY` isn't configured — surface it once so the operator wires up Resend.
+- `pending-operator-send` **with `auto_send: true`** - queued for autonomous send by `vuln-scanner`'s disclose arm (`var=disclose`); classify as `pending` (NOT operator-todo). It flips to `email-sent` on the next disclose run, which only happens when `vuln-scanner` is dispatched with `var=disclose` (the default schedule runs the scan arm). If it lingers armed-but-unsent across several days, either no disclose run was dispatched or `RESEND_API_KEY` isn't configured - surface it once so the operator schedules or runs the disclose arm and wires up Resend.
 - `pending-operator-send` **with `auto_send: false`/absent** / `queued for operator manual send` — operator-todo (human must send; e.g. non-email contact or AI-report ban)
-- `email-sent` — sent by `disclosure-emailer` via Resend; awaiting maintainer reply. Treat like `submitted` (informational cleanup candidate, **never** an escalation).
-- `email-failed` — `disclosure-emailer` gave up after repeated send failures (bad address / Resend error). **operator-todo** — the contact needs fixing or a manual send.
+- `email-sent` - sent by `vuln-scanner`'s disclose arm via Resend; awaiting maintainer reply. Treat like `submitted` (informational cleanup candidate, **never** an escalation).
+- `email-failed` - the disclose arm gave up after repeated send failures (bad address / Resend error). **operator-todo** — the contact needs fixing or a manual send.
 - `submitted` / `submitted-via-pvr` — submitted, awaiting maintainer
 - `disclosed-via-pr-<N>` — covered-by-pr, draft can be archived
 - `superseded-upstream` — bypass is already fixed in upstream; draft is dead
@@ -656,5 +675,5 @@ When a canonical PR lands but the draft's `status:` was never set, Arm C falls t
 ## Notes & related
 
 - **`vuln-scanned.json` schema is loose** — `cwe` may be a string or an array; `advisory_ids` may be present or absent. Handle both.
-- **Sibling skill:** `vuln-scanner` produces the records this skill audits (its write actions — open PR, submit PVR, queue draft — are deliberately NOT here). `pvr-watchlist` probes repos *waiting to open* PVR; Arm B picks up once a PVR is submitted. `inbox-triage` catches inbound maintainer replies via the GitHub notification layer (complementary, not a duplicate of Arm A's branch-name lifecycle audit).
+- **Sibling skill:** `vuln-scanner` produces the records this skill audits (its write actions — open PR, submit PVR, queue draft — are deliberately NOT here). `vuln-scanner`'s re-submit arm probes repos *waiting to open* PVR; Arm B picks up once a PVR is submitted. `inbox-triage` catches inbound maintainer replies via the GitHub notification layer (complementary, not a duplicate of Arm A's branch-name lifecycle audit).
 - Arm A, Arm B, and Arm C all read `memory/pending-disclosures/` from different angles; coordinate via the shared `memory/topics/vuln-followup.md` dashboard to avoid duplicate escalation.

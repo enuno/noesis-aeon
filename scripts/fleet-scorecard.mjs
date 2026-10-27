@@ -1,23 +1,23 @@
 #!/usr/bin/env node
 // fleet-scorecard — gather fleet run/token data and compute the scorecard IN-RUN.
 //
-// Ported from the retired scripts/prefetch-fleet-scorecard.sh so the fleet-control
-// `scorecard` view no longer needs a prefetch phase. The deterministic maths (pricing,
-// aggregation, table generation) stays in committed code — it just runs inside the skill
-// run now instead of before it.
+// Pricing, aggregation and table generation are deterministic, so they live in
+// committed code rather than being left to the model — the skill run just invokes this.
 //
-// Auth: reads its token from the environment — GH_READ_PAT (a read-only PAT injected via
-// the skill's `requires:`, needed to read PRIVATE managed instances) is preferred, else
-// GH_TOKEN / GITHUB_TOKEN. The token is read from process.env INSIDE this script, so no
-// secret ever touches a command line (the caller runs a bare `node scripts/fleet-scorecard.mjs`).
+// Auth: reads its token from the environment — GH_READ_PAT (an optional read-only PAT injected
+// via the skill's `requires:`) is preferred; otherwise it falls back to GH_GLOBAL / GH_TOKEN /
+// GITHUB_TOKEN (the run's repo-wide token), which reads the same PRIVATE managed instances — the
+// normal single-key setup, not a degraded path. The token is read from process.env INSIDE this
+// script, so no secret ever touches a command line (the caller runs a bare `node scripts/fleet-scorecard.mjs`).
 //
 // Writes /tmp/fleet-scorecard/{scorecard-body.md,metrics.json} — the same shape the
-// fleet-control scorecard view consumes. Token mapping + pricing match skills/cost-report:
+// fleet-control scorecard view consumes. Token mapping + pricing match the retired cost-report skill:
 //   prompt = input + cache_read + cache_creation ; cached = cache_read ; completion = output
-//   cost   = input·in + output·out + cache_creation·cw + cache_read·cr  (per-1M list price)
+//   cost   = input·in + output·out + cache_creation·cw + cache_read·cr  (per-1M list price,
+//            by Claude model version; non-Claude rows are counted as unpriced, not costed)
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 
-const TOKEN = process.env.GH_READ_PAT || process.env.GH_TOKEN || process.env.GITHUB_TOKEN || '';
+const TOKEN = process.env.GH_READ_PAT || process.env.GH_GLOBAL || process.env.GH_TOKEN || process.env.GITHUB_TOKEN || '';
 const DIR = '/tmp/fleet-scorecard';
 const WINDOW_DAYS = 14;
 mkdirSync(DIR, { recursive: true });
@@ -66,7 +66,7 @@ if (!repos.length) {
   console.error('fleet-scorecard: no repos resolved (no GITHUB_REPOSITORY, empty registry) — skipping');
   process.exit(0);
 }
-console.error(`fleet-scorecard: fleet = ${repos.join(' ')}${TOKEN ? '' : ' (UNAUTHENTICATED — set GH_READ_PAT)'}`);
+console.error(`fleet-scorecard: fleet = ${repos.join(' ')}${TOKEN ? '' : ' (UNAUTHENTICATED — set GH_READ_PAT or GH_GLOBAL)'}`);
 
 // ---- 1. fetch runs + defined-skill counts + token-usage.csv ----------------
 const runs = [];          // {repo,name,conclusion,created_at,head_branch}
@@ -98,18 +98,62 @@ for (const repo of repos) {
 }
 
 // ---- pricing + formatters ----
-function priceRate(model, kind) {
-  let i, o, cw, cr;
-  if (/opus/.test(model)) { i = 15; o = 75; cw = 18.75; cr = 1.50; }
-  else if (/sonnet/.test(model)) { i = 3; o = 15; cw = 3.75; cr = 0.30; }
-  else if (/haiku/.test(model)) { i = 0.80; o = 4; cw = 1.00; cr = 0.08; }
-  else { i = 15; o = 75; cw = 18.75; cr = 1.50; } // unknown -> conservative (Opus)
-  return { in: i, out: o, cw, cr }[kind] / 1e6;
+// Anthropic list prices, $ per 1M tokens, keyed by model VERSION (a family regex
+// alone mispriced every row: Opus 4.5+ is 5/25, not the old 15/75). Cache write
+// is 2x input, the 1-hour TTL price: Claude Code on a Claude subscription writes
+// 1h caches (usage.cache_creation.ephemeral_1h_input_tokens), and token-usage.csv
+// has no TTL split. The 5-minute price (1.25x) priced every write 37.5% low.
+// Cache read is the listed read price.
+// Checked against models.dev (Anthropic rows) 2026-10-16.
+// Ids are normalized first (vendor prefix dropped, trailing -YYYYMMDD dropped,
+// dots to dashes), so claude-haiku-4-5-20251001, anthropic/claude-opus-5.5 and
+// claude-opus-5-5 all land on their row.
+const CLAUDE_PRICES = {
+  'claude-fable-5-1': { in: 10, out: 50, cr: 0.25 },
+  'claude-fable-5': { in: 10, out: 50, cr: 1 },
+  'claude-opus-5-5': { in: 4, out: 20, cr: 0.20 },
+  'claude-opus-5': { in: 5, out: 25, cr: 0.50 },
+  'claude-opus-4-8': { in: 5, out: 25, cr: 0.50 },
+  'claude-opus-4-7': { in: 5, out: 25, cr: 0.50 },
+  'claude-opus-4-6': { in: 5, out: 25, cr: 0.50 },
+  'claude-opus-4-5': { in: 5, out: 25, cr: 0.50 },
+  'claude-opus-4-1': { in: 15, out: 75, cr: 1.50 },
+  'claude-opus-4': { in: 15, out: 75, cr: 1.50 },
+  'claude-sonnet-5-5': { in: 2, out: 10, cr: 0.10 },
+  'claude-sonnet-5': { in: 2, out: 10, cr: 0.20 },
+  'claude-sonnet-4-6': { in: 3, out: 15, cr: 0.30 },
+  'claude-sonnet-4-5': { in: 3, out: 15, cr: 0.30 },
+  'claude-sonnet-4': { in: 3, out: 15, cr: 0.30 },
+  'claude-haiku-5-5': { in: 0.10, out: 0.50, cr: 0.01 },
+  'claude-haiku-4-5': { in: 1, out: 5, cr: 0.10 },
+  'claude-3-5-haiku': { in: 0.80, out: 4, cr: 0.08 },
+};
+// A Claude id with a version this table does not know yet (a new release) is
+// priced at its family's current flagship row, so it still shows up in the
+// cost columns instead of vanishing.
+const CLAUDE_FAMILY_FALLBACK = { fable: 'claude-fable-5-1', opus: 'claude-opus-5-5', sonnet: 'claude-sonnet-5-5', haiku: 'claude-haiku-5-5' };
+const normalizeModel = (model) => String(model || '').trim().toLowerCase()
+  .replace(/^anthropic\//, '').replace(/-\d{8}$/, '').replace(/\./g, '-');
+// Rates in $ per token for a model, or null when it is not a Claude model. Rows
+// from other harnesses (codex/pi/kimi/vibe/grok/cursor/hermes ids, and the
+// `<harness>-default` rows the adapter writes when a harness runs its own
+// default) have no price here, so they are counted as unpriced instead of being
+// billed at Claude rates.
+function priceFor(model) {
+  const id = normalizeModel(model);
+  let row = CLAUDE_PRICES[id];
+  if (!row && /^claude-/.test(id)) {
+    const family = Object.keys(CLAUDE_FAMILY_FALLBACK).find((f) => id.includes(f));
+    if (family) row = CLAUDE_PRICES[CLAUDE_FAMILY_FALLBACK[family]];
+  }
+  if (!row) return null;
+  return { in: row.in / 1e6, out: row.out / 1e6, cw: (row.in * 2) / 1e6, cr: row.cr / 1e6 };
 }
 const commafy = (x) => Math.trunc(x).toLocaleString('en-US');
 const hum = (n) => n >= 1e9 ? `${(n / 1e9).toFixed(2)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : `${Math.trunc(n)}`;
 const basename = (p) => String(p).replace(/.*\//, '');
 const baseName = (name) => String(name || '(none)').replace(/ \(.*$/, ''); // strip " (…)" suffix
+const skillName = (name) => /^skill: /.test(name || '') ? baseName(String(name).replace(/^skill: /, '')) : null;
 const num = (x) => Number(x) || 0;
 
 // ---- run-level aggregates --------------------------------------------------
@@ -124,19 +168,26 @@ for (const r of runs) {
   const s = (runStat[r.repo] ||= { tot: 0, succ: 0, skills: new Set() });
   s.tot++;
   if (r.conclusion === 'success') s.succ++;
-  if (/^skill:/.test(r.name || '')) s.skills.add(baseName(String(r.name).replace(/^skill: /, '')));
+  const skill = skillName(r.name);
+  if (skill) s.skills.add(skill);
 }
 
 // ---- token aggregates (fleet, per-repo, per-skill) -------------------------
-const fleet = { g: 0, prompt: 0, cr: 0, out: 0, actual: 0, base: 0 };
+const fleet = { g: 0, prompt: 0, cr: 0, out: 0, actual: 0, base: 0, unpriced: 0, unpricedTokens: 0 };
+const unpricedModels = new Map(); // model -> generations
 const perRepo = {};  // repo -> {g,prompt,cr,comp,cost,base}
 const perSkill = {}; // skill -> {g,prompt,cr,cost,repos:Set}
 for (const row of rows) {
   const [repo, , skill, model, inS, outS, crS, cwS] = row;
   const input = num(inS), output = num(outS), cacheRead = num(crS), cacheCreation = num(cwS);
   const prompt = input + cacheRead + cacheCreation;
-  const cost = input * priceRate(model, 'in') + output * priceRate(model, 'out') + cacheCreation * priceRate(model, 'cw') + cacheRead * priceRate(model, 'cr');
-  const base = prompt * priceRate(model, 'in') + output * priceRate(model, 'out');
+  const rate = priceFor(model);
+  const cost = rate ? input * rate.in + output * rate.out + cacheCreation * rate.cw + cacheRead * rate.cr : 0;
+  const base = rate ? prompt * rate.in + output * rate.out : 0;
+  if (!rate) {
+    fleet.unpriced++; fleet.unpricedTokens += prompt + output;
+    unpricedModels.set(model || '(none)', (unpricedModels.get(model || '(none)') || 0) + 1);
+  }
 
   fleet.g++; fleet.prompt += prompt; fleet.cr += cacheRead; fleet.out += output; fleet.actual += cost; fleet.base += base;
 
@@ -163,7 +214,12 @@ L.push(`| **completion_tokens** | **${commafy(fleet.out)}** (${hum(fleet.out)}) 
 L.push(`| **total_tokens** | **${commafy(fleet.prompt + fleet.out)}** (${hum(fleet.prompt + fleet.out)}) |`);
 L.push(`| **usage — est. cost** | **$${commafy(fleet.actual)}** |`);
 L.push(`| cache_discount (saved vs uncached) | $${commafy(fleet.base - fleet.actual)} |`);
-L.push('', '> `cached_tokens` ⊆ `prompt_tokens` (OpenRouter shape). Cost = Anthropic list price (estimate).', '');
+L.push(`| unpriced generations (non-Claude models) | ${commafy(fleet.unpriced)} (${hum(fleet.unpricedTokens)} tokens) |`);
+L.push('', '> `cached_tokens` ⊆ `prompt_tokens` (OpenRouter shape). Cost = Anthropic list price per model version (estimate); non-Claude rows are counted but not costed.', '');
+if (unpricedModels.size) {
+  const top = [...unpricedModels.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+  L.push(`_Unpriced models: ${top.map(([m, n]) => `\`${m}\` (${commafy(n)})`).join(', ')}${unpricedModels.size > top.length ? ', ...' : ''}_`, '');
+}
 
 L.push('## Per-repo', '');
 L.push('| Repo | Runs | Success | Skills (ran/defined) | Gens | prompt_tokens | cached % | total_tokens | cost | cache_discount |');
@@ -194,7 +250,8 @@ for (const r of runs) {
   if (r.head_branch !== 'main') continue;
   const t = Date.parse(r.created_at || '');
   if (!(t >= cutoff)) continue;
-  const skill = baseName(r.name);
+  const skill = skillName(r.name);
+  if (!skill) continue;
   const key = `${r.repo}|${skill}`;
   const g = (grp[key] ||= { repo: r.repo, skill, total: 0, fail: 0 });
   g.total++;
@@ -215,6 +272,7 @@ const metrics = {
   prompt_tokens: Math.trunc(fleet.prompt), cached_tokens: Math.trunc(fleet.cr),
   completion_tokens: Math.trunc(fleet.out), total_tokens: Math.trunc(fleet.prompt + fleet.out),
   est_cost_usd: Number(fleet.actual.toFixed(2)), cache_discount_usd: Number((fleet.base - fleet.actual).toFixed(2)),
+  unpriced_generations: fleet.unpriced, unpriced_tokens: Math.trunc(fleet.unpricedTokens),
 };
 writeFileSync(`${DIR}/metrics.json`, JSON.stringify(metrics) + '\n');
 

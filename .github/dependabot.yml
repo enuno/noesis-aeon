@@ -42,6 +42,19 @@ updates:
       dashboard:
         patterns:
           - "*"
+    # Hold TypeScript on the 6.x line. TS 7 (the native/Go port) ships a different
+    # package layout that Next.js 16's build-time TS integration doesn't recognize
+    # yet: `next build` crashes ("The 'id' argument must be of type string") even
+    # though `tsc --noEmit` passes. Minor/patch bumps within 6.x still flow through.
+    # Revisit once Next.js ships TS7 support.
+    ignore:
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      # eslint 10 crashes eslint-config-next's bundled eslint-plugin-react at
+      # runtime (peer allows >=9 but the plugin throws). Hold on 9.x until
+      # eslint-config-next supports eslint 10.
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
 
   # MCP server — exposes Aeon skills as Claude tools.
   - package-ecosystem: "npm"
@@ -56,6 +69,22 @@ updates:
       prefix-development: "chore(deps-dev)"
     groups:
       mcp-server:
+        patterns:
+          - "*"
+
+  # CLI — non-interactive control of an Aeon repo; shares apps/dashboard/lib.
+  - package-ecosystem: "npm"
+    directory: "/apps/cli"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 5
+    assignees:
+      - "aeonfun"
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+    groups:
+      cli:
         patterns:
           - "*"
 
@@ -74,3 +103,12 @@ updates:
       webhook:
         patterns:
           - "*"
+    # eslint 10 and globals 17 are breaking majors that fail the webhook lint/bundle
+    # step (ESM resolution error under the flat-config migration). Hold both on their
+    # current majors so the grouped PR stays green; revisit when the worker's eslint
+    # setup supports 10.
+    ignore:
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "globals"
+        update-types: ["version-update:semver-major"]

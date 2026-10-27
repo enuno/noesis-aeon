@@ -1,12 +1,20 @@
 // Output helpers shared by every command. A single `--json` switch flips all
 // human rendering to machine-parseable JSON so the CLI drops into scripts.
 
+import { ghAvailable, ghArgsRepo } from '../../dashboard/lib/gh.ts'
+
 let jsonMode = false
-export function setJsonMode(on: boolean) { jsonMode = on }
+export function setJsonMode(on: boolean) {
+  jsonMode = on
+}
 
 let dryRun = false
-export function setDryRun(on: boolean) { dryRun = on }
-export function isDryRun() { return dryRun }
+export function setDryRun(on: boolean) {
+  dryRun = on
+}
+export function isDryRun() {
+  return dryRun
+}
 
 const useColor = process.stdout.isTTY && !process.env.NO_COLOR
 const wrap = (code: number, s: string) => (useColor ? `\x1b[${code}m${s}\x1b[0m` : s)
@@ -30,9 +38,12 @@ export function emit(data: unknown, human: () => void) {
 
 // Print a left-aligned column table. `headers` label the columns; each row is a
 // string per column. Column widths size to the widest cell (header included).
+export function truncate(s: string, n: number) {
+  return s.length > n ? s.slice(0, n - 1) + '…' : s
+}
+
 export function table(headers: string[], rows: string[][]) {
-  const widths = headers.map((h, i) =>
-    Math.max(h.length, ...rows.map(r => stripAnsi(r[i] ?? '').length)))
+  const widths = headers.map((h, i) => Math.max(h.length, ...rows.map(r => stripAnsi(r[i] ?? '').length)))
   const pad = (cell: string, i: number) => {
     const visible = stripAnsi(cell).length
     return cell + ' '.repeat(Math.max(0, widths[i] - visible))
@@ -55,4 +66,27 @@ export function fail(message: string, code = 1): never {
     console.error(c.red('error: ') + message)
   }
   process.exit(code)
+}
+
+// Guard for every command that shells out to `gh`. Sites that need to say what
+// specifically failed (e.g. `secrets ls`) keep their own `fail(...)` message.
+export function requireGh(): void {
+  if (!ghAvailable()) fail('GitHub CLI not authenticated. Run: gh auth login')
+}
+
+// The upstream template, never an operator's instance. A secret or push aimed
+// here means `gh repo set-default` was never run on a fresh clone, so the write
+// would land on (or 403 against) aeonfun/aeon instead of the operator's repo.
+export const UPSTREAM_REPOS = new Set(['aeonfun/aeon', 'aaronjmars/aeon'])
+export const isUpstreamRepo = (slug: string) => UPSTREAM_REPOS.has(slug.toLowerCase())
+
+// Guard for commands that write secrets: refuse when gh resolves to upstream.
+export function requireInstanceRepo(): void {
+  const args = ghArgsRepo()
+  const repo = args[1] ?? ''
+  if (repo && isUpstreamRepo(repo)) {
+    fail(
+      `gh points at ${repo}, the Aeon template - not your instance. Run \`./aeon init\` (or \`gh repo set-default <you>/<your-repo>\`) first.`,
+    )
+  }
 }

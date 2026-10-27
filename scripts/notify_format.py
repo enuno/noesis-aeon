@@ -10,6 +10,7 @@ Channels & limits:
   - telegram : Markdown -> Telegram HTML (parse_mode=HTML), chunks <= 3900; base64 per line
   - discord  : embeds, description <= 4096; one JSON POST body per line
   - slack    : Block Kit, section text <= 3000; one JSON POST body (stdout)
+  - buzz     : raw Markdown (Buzz renders it natively), chunks <= 15000; base64 per line
 
 Two correctness properties this guarantees and the tests pin:
   1. No chunk exceeds its channel limit.
@@ -240,6 +241,65 @@ def md_to_telegram_html(text):
     return "\n".join(out)
 
 
+_HTML_TAG = re.compile(r"(<\/?[A-Za-z][^>]*>)")
+_HTML_ENTITY = re.compile(r"&(?:amp|lt|gt|quot);|.", re.DOTALL)
+
+
+def _html_tag_name(tag):
+    m = re.match(r"</?([A-Za-z][A-Za-z0-9-]*)", tag)
+    return m.group(1) if m else None
+
+
+def _chunk_telegram_html(html, limit):
+    """Split rendered Telegram HTML without breaking tags or the size limit."""
+    # Reserve room for the [i/N] footer added by telegram(). The previous
+    # Markdown-first chunker could not account for HTML escaping/tag overhead.
+    budget = max(1, limit - 32)
+    chunks, current, stack = [], "", []
+
+    def closing():
+        return "".join(f"</{name}>" for name, _ in reversed(stack))
+
+    def reopening():
+        return "".join(tag for _, tag in stack)
+
+    def flush():
+        nonlocal current
+        if current:
+            chunks.append(current + closing())
+            current = reopening()
+
+    def add_text(text):
+        nonlocal current
+        for unit in _HTML_ENTITY.findall(text):
+            if len(current) + len(unit) + len(closing()) > budget:
+                flush()
+            current += unit
+
+    for token in _HTML_TAG.split(html):
+        if not token:
+            continue
+        if not token.startswith("<"):
+            add_text(token)
+            continue
+
+        if len(current) + len(token) + len(closing()) > budget:
+            flush()
+        current += token
+        name = _html_tag_name(token)
+        if not name or token.endswith("/>"):
+            continue
+        if token.startswith("</"):
+            if stack and stack[-1][0] == name:
+                stack.pop()
+        else:
+            stack.append((name, token))
+
+    if current:
+        chunks.append(current + closing())
+    return chunks
+
+
 # ---- per-channel payload builders -----------------------------------------
 
 def telegram(text, title, severity, limit=3900):
@@ -247,14 +307,16 @@ def telegram(text, title, severity, limit=3900):
     body = text
     if title:
         body = "**%s %s**\n\n%s" % (meta["emoji"], title, body)
-    # Chunk the Markdown first (fence-safe, tested), leaving headroom for the
-    # HTML growth (<b></b>, <a href=…>) that md_to_telegram_html adds per chunk.
-    md_chunks = chunk(body, min(limit, 3400))
-    n = len(md_chunks)
+    # Render first, then split the HTML while preserving balanced tags. The
+    # Markdown-first chunker cannot know how much escaping and tag markup will
+    # expand a chunk, so it can emit Telegram payloads over the API limit.
+    html = md_to_telegram_html(body)
+    html_chunks = _chunk_telegram_html(html, limit)
+    n = len(html_chunks)
     out = []
-    for i, c in enumerate(md_chunks):
+    for i, c in enumerate(html_chunks):
         suffix = f"\n\n[{i + 1}/{n}]" if n > 1 else ""
-        out.append(md_to_telegram_html(c) + suffix)
+        out.append(c + suffix)
     return out  # list[str] of Telegram HTML
 
 
@@ -286,9 +348,26 @@ def slack(text, title, severity, limit=3000):
     return {"blocks": blocks}  # dict
 
 
+def buzz(text, title, severity, limit=15000):
+    # Buzz (Block's Nostr-relay workspace) renders Markdown natively, so unlike the
+    # Telegram/Slack paths there is no HTML or Block-Kit transform — just chunk the
+    # Markdown fence-safely. `limit` sits well under the relay's 65,536-byte per-message
+    # cap and small enough to stay readable in a chat channel. One `buzz messages send`
+    # per chunk; the caller base64-decodes each line and pipes it to the CLI's stdin.
+    meta = SEVERITY.get(severity, SEVERITY[DEFAULT_SEVERITY])
+    body = text
+    if title:
+        body = "%s **%s**\n\n%s" % (meta["emoji"], title, body)
+    chunks = chunk(body, limit)
+    n = len(chunks)
+    if n > 1:
+        chunks = [c + f"\n\n[{i + 1}/{n}]" for i, c in enumerate(chunks)]
+    return chunks  # list[str] of Markdown, one message per chunk
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("channel", choices=["telegram", "discord", "slack"])
+    ap.add_argument("channel", choices=["telegram", "discord", "slack", "buzz"])
     ap.add_argument("--title", default="")
     ap.add_argument("--severity", default=DEFAULT_SEVERITY)
     ap.add_argument("--limit", type=int, default=0)
@@ -306,6 +385,10 @@ def main():
     elif args.channel == "slack":
         lim = args.limit or 3000
         sys.stdout.write(json.dumps(slack(text, args.title, args.severity, lim)) + "\n")
+    elif args.channel == "buzz":
+        lim = args.limit or 15000
+        for c in buzz(text, args.title, args.severity, lim):
+            sys.stdout.write(base64.b64encode(c.encode()).decode() + "\n")
 
 
 if __name__ == "__main__":

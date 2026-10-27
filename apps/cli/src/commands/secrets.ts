@@ -1,10 +1,7 @@
 import { readFileSync } from 'node:fs'
-import {
-  getSecrets, setSecret, deleteSecret, VALID_SECRET_NAME,
-} from '../../../dashboard/lib/secrets-catalog.ts'
-import { ghAvailable } from '../../../dashboard/lib/gh.ts'
+import { getSecrets, setSecret, deleteSecret, VALID_SECRET_NAME } from '../../../dashboard/lib/secrets-catalog.ts'
 import type { Secret } from '../../../dashboard/lib/types.ts'
-import { emit, table, c, fail, isDryRun } from '../output.ts'
+import { emit, table, c, fail, isDryRun, requireGh, truncate } from '../output.ts'
 
 const USAGE = `aeon secrets — the credential vault (names + set-state, never values)
 
@@ -23,7 +20,10 @@ Options:
 
 export async function secretsCommand(argv: string[]) {
   const sub = argv[0] && !argv[0].startsWith('-') ? argv[0] : 'ls'
-  if (sub === 'help' || argv.includes('-h') || argv.includes('--help')) { console.log(USAGE); return }
+  if (sub === 'help' || argv.includes('-h') || argv.includes('--help')) {
+    console.log(USAGE)
+    return
+  }
   if (sub === 'set') return setCmd(argv.slice(1))
   if (sub === 'rm') return rmCmd(argv.slice(1))
   if (sub !== 'ls') fail(`unknown subcommand: ${sub}\n\n${USAGE}`)
@@ -38,7 +38,10 @@ export async function secretsCommand(argv: string[]) {
   if (onlyUnset) rows = rows.filter(s => !s.isSet)
 
   emit(rows, () => {
-    if (rows.length === 0) { console.log(c.dim('(no matching secrets)')); return }
+    if (rows.length === 0) {
+      console.log(c.dim('(no matching secrets)'))
+      return
+    }
     const groups = new Map<string, Secret[]>()
     for (const s of rows) {
       const g = groups.get(s.group) ?? []
@@ -70,7 +73,7 @@ function requireSecretName(args: string[]): string {
 }
 
 async function setCmd(args: string[]) {
-  if (!ghAvailable()) fail('GitHub CLI not authenticated. Run: gh auth login')
+  requireGh()
   const name = requireSecretName(args)
   let value: string
   if (args.includes('--stdin')) {
@@ -84,23 +87,21 @@ async function setCmd(args: string[]) {
 
   if (isDryRun()) {
     return emit({ label: `set ${name}`, dryRun: true }, () =>
-      console.log(c.yellow('dry-run: ') + `would set secret ${name} (${value.length} chars) via gh`))
+      console.log(c.yellow('dry-run: ') + `would set secret ${name} (${value.length} chars) via gh`),
+    )
   }
   await setSecret(name, value)
   emit({ ok: true, set: name }, () => console.log(c.green('✓ ') + `set ${name}`))
 }
 
 async function rmCmd(args: string[]) {
-  if (!ghAvailable()) fail('GitHub CLI not authenticated. Run: gh auth login')
+  requireGh()
   const name = requireSecretName(args)
   if (isDryRun()) {
     return emit({ label: `rm ${name}`, dryRun: true }, () =>
-      console.log(c.yellow('dry-run: ') + `would delete secret ${name} via gh`))
+      console.log(c.yellow('dry-run: ') + `would delete secret ${name} via gh`),
+    )
   }
   await deleteSecret(name)
   emit({ ok: true, deleted: name }, () => console.log(c.green('✓ ') + `deleted ${name}`))
-}
-
-function truncate(s: string, n: number) {
-  return s.length > n ? s.slice(0, n - 1) + '…' : s
 }

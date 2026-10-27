@@ -1,13 +1,19 @@
 ---
-type: Skill
-mode: read-only
-name: Tx Explain
-category: basics
+name: tx-explain
 description: Decode any Base transaction into a plain-English story - method, token movements, swaps/approvals, counterparties, and suspicious-approval flags. Keyless via Base RPC + Etherscan v2.
-var: ""
-tags: [crypto, base]
-requires: [ETHERSCAN_API_KEY?]
-capabilities: [external_api, sends_notifications]
+metadata:
+  title: Tx Explain
+  mode: read-only
+  category: basics
+  var: ""
+  tags:
+    - crypto
+    - base
+  requires:
+    - ETHERSCAN_API_KEY?
+  capabilities:
+    - external_api
+    - sends_notifications
 ---
 > **${var}** — Transaction hash (`0x...`, 66 chars) on Base. Required. If empty, log `TX_EXPLAIN_NO_TARGET` and exit cleanly (no notify).
 
@@ -82,10 +88,10 @@ Tx: https://basescan.org/tx/0xhash...12
 
 ### 6. Log
 
-Append to `memory/logs/${today}.md`:
+This skill is `read-only`, so the workflow's read-only guard writes its `### tx-explain` log entry from your captured output; a self-written entry would be a duplicate. Don't append to `memory/logs/` yourself - put this record in your **final output**:
 
 ```
-## tx-explain
+### tx-explain
 - Tx: 0x… | status: success | action: swap (Aerodrome)
 - Net: -1.5 WETH / +4210 USDC for 0xabc…
 - Flags: none

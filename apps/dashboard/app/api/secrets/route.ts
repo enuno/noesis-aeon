@@ -8,21 +8,28 @@ import { getSecrets, setSecret, deleteSecret, VALID_SECRET_NAME } from '@/lib/se
 // share one definition. This route is now a thin HTTP wrapper.
 
 export async function GET() {
-  const { secrets, ghReady } = getSecrets()
-  if (!ghReady) {
-    return NextResponse.json({
-      error: 'GitHub CLI not authenticated. Run: gh auth login',
-      ghReady: false,
-    }, { status: 503 })
+  try {
+    const { secrets, ghReady } = getSecrets()
+    if (!ghReady) {
+      return NextResponse.json(
+        {
+          error: 'GitHub CLI not authenticated. Run: gh auth login',
+          ghReady: false,
+        },
+        { status: 503 },
+      )
+    }
+    return NextResponse.json({ secrets, ghReady: true })
+  } catch (error: unknown) {
+    return errorResponse(error, 'Failed to read repo secrets')
   }
-  return NextResponse.json({ secrets, ghReady: true })
 }
 
 export async function POST(request: Request) {
   const notReady = requireGh()
   if (notReady) return notReady
 
-  const { name, value } = await request.json() as { name?: string; value?: string }
+  const { name, value } = (await request.json()) as { name?: string; value?: string }
 
   if (!name || !value) {
     return NextResponse.json({ error: 'name and value required' }, { status: 400 })
@@ -43,7 +50,7 @@ export async function DELETE(request: Request) {
   const notReady = requireGh()
   if (notReady) return notReady
 
-  const { name } = await request.json() as { name?: string }
+  const { name } = (await request.json()) as { name?: string }
 
   if (!name || !VALID_SECRET_NAME.test(name)) {
     return NextResponse.json({ error: 'Invalid secret name' }, { status: 400 })

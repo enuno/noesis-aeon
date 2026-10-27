@@ -47,15 +47,15 @@ export function parseConfig(raw: string): AeonConfig {
     }
   }
 
-  const model = String(doc.get('model') ?? 'claude-sonnet-4-6')
+  const model = String(doc.get('model') ?? 'claude-sonnet-5-5')
   const harnessRaw = String(doc.get('harness') ?? 'claude')
-  const harness: Harness = HARNESSES.includes(harnessRaw as Harness) ? (harnessRaw as Harness) : 'claude'
+  const harness: Harness = HARNESSES.find(h => h === harnessRaw) ?? 'claude'
 
   let gateway: GatewayConfig = { provider: 'auto' }
   const gatewayNode = doc.get('gateway')
   if (isMap(gatewayNode)) {
     const provider = String(getMapValue(gatewayNode, 'provider') ?? 'auto')
-    gateway = { provider: GATEWAY_PROVIDERS.includes(provider as GatewayProvider) ? (provider as GatewayProvider) : 'auto' }
+    gateway = { provider: GATEWAY_PROVIDERS.find(p => p === provider) ?? 'auto' }
   }
 
   let jsonrenderEnabled = false
@@ -73,11 +73,7 @@ export function parseConfig(raw: string): AeonConfig {
 /**
  * Update a skill's config fields in aeon.yml. Preserves formatting and comments.
  */
-export function updateSkillInConfig(
-  raw: string,
-  name: string,
-  updates: Partial<SkillConfig>,
-): string {
+export function updateSkillInConfig(raw: string, name: string, updates: Partial<SkillConfig>): string {
   const doc = parseDocument(raw)
   const skillsNode = doc.get('skills')
   if (!isMap(skillsNode)) return raw
@@ -85,37 +81,42 @@ export function updateSkillInConfig(
   const skillNode = skillsNode.get(name)
   if (!isMap(skillNode)) return raw
 
+  // String fields are written double-quoted, like addSkillToConfig's schedule:
+  // the scheduler, chain-runner, resolve-harness.sh and aeon.yml's model read
+  // all parse aeon.yml with bash/awk patterns that only match `key: "value"`, so
+  // an unquoted value (what yaml emits for a NEW key) was silently ignored in CI.
   if (typeof updates.enabled === 'boolean') {
     skillNode.set('enabled', updates.enabled)
   }
   if (typeof updates.schedule === 'string' && updates.schedule) {
-    skillNode.set('schedule', updates.schedule)
+    setQuoted(doc, skillNode, 'schedule', updates.schedule)
   }
   if (typeof updates.var === 'string') {
     if (updates.var) {
-      skillNode.set('var', updates.var)
+      setQuoted(doc, skillNode, 'var', updates.var)
     } else {
       skillNode.delete('var')
     }
   }
   if (typeof updates.model === 'string') {
     if (updates.model) {
-      skillNode.set('model', updates.model)
+      setQuoted(doc, skillNode, 'model', updates.model)
     } else {
       skillNode.delete('model')
     }
   }
   if (typeof updates.harness === 'string') {
-    // Only `grok` is worth pinning per-skill; anything else (incl. 'claude')
-    // clears the override so the skill inherits the top-level default.
-    if (updates.harness === 'grok') {
-      skillNode.set('harness', updates.harness)
+    // Pin any non-default harness (grok/codex/pi/vibe/kimi) per-skill; `claude`
+    // (the top-level default) clears the override so the skill inherits it. This
+    // lets one skill run on a different harness than the repo default.
+    if (updates.harness && updates.harness !== 'claude') {
+      setQuoted(doc, skillNode, 'harness', updates.harness)
     } else {
       skillNode.delete('harness')
     }
   }
 
-  return doc.toString()
+  return serialize(doc)
 }
 
 /**
@@ -124,7 +125,7 @@ export function updateSkillInConfig(
 export function updateModelInConfig(raw: string, model: string): string {
   const doc = parseDocument(raw)
   doc.set('model', model)
-  return doc.toString()
+  return serialize(doc)
 }
 
 /**
@@ -133,7 +134,7 @@ export function updateModelInConfig(raw: string, model: string): string {
 export function updateHarnessInConfig(raw: string, harness: Harness): string {
   const doc = parseDocument(raw)
   doc.set('harness', harness)
-  return doc.toString()
+  return serialize(doc)
 }
 
 /**
@@ -142,7 +143,7 @@ export function updateHarnessInConfig(raw: string, harness: Harness): string {
 export function updateGatewayInConfig(raw: string, provider: GatewayProvider): string {
   const doc = parseDocument(raw)
   doc.setIn(['gateway', 'provider'], provider)
-  return doc.toString()
+  return serialize(doc)
 }
 
 /**
@@ -157,7 +158,7 @@ export function updateJsonrenderInConfig(raw: string, enabled: boolean): string 
       jr.set('enabled', enabled)
     }
   }
-  return doc.toString()
+  return serialize(doc)
 }
 
 /**
@@ -169,17 +170,13 @@ export function removeSkillFromConfig(raw: string, name: string): string {
   if (isMap(skillsNode)) {
     skillsNode.delete(name)
   }
-  return doc.toString()
+  return serialize(doc)
 }
 
 /**
  * Add a new skill entry to aeon.yml (before the fallback comment).
  */
-export function addSkillToConfig(
-  raw: string,
-  name: string,
-  config: Partial<SkillConfig> = {},
-): string {
+export function addSkillToConfig(raw: string, name: string, config: Partial<SkillConfig> = {}): string {
   const doc = parseDocument(raw)
   const skillsNode = doc.get('skills')
   if (!isMap(skillsNode)) return raw
@@ -191,16 +188,22 @@ export function addSkillToConfig(
     enabled: config.enabled ?? false,
     schedule: config.schedule ?? '0 12 * * *',
   })
-  // Set flow style to match inline format
   if (isMap(entry)) {
     entry.flow = true
+    // Force the cron to a double-quoted scalar. `0 12 * * *` is a perfectly
+    // valid plain YAML string, but the scheduler parses aeon.yml with a bash
+    // regex that REQUIRES the quotes:
+    //   [[ "$INLINE" =~ schedule:\ *\"([^\"]+)\" ]]   (.github/workflows/scheduler.yml)
+    // An unquoted cron leaves SKILL_SCHEDULE empty, and the empty-schedule
+    // guard then skips the skill — so it silently never fires. Every
+    // hand-written entry is quoted; generated ones must match.
+    const sched = entry.get('schedule', true)
+    if (isScalar(sched)) sched.type = 'QUOTE_DOUBLE'
   }
 
   // Find the fallback skill (heartbeat, last entry) and insert before it
   const items = skillsNode.items
-  const fallbackIdx = items.findIndex(
-    (item) => isPair(item) && isScalar(item.key) && item.key.value === 'heartbeat',
-  )
+  const fallbackIdx = items.findIndex(item => isPair(item) && isScalar(item.key) && item.key.value === 'heartbeat')
 
   if (fallbackIdx >= 0) {
     const pair = doc.createPair(name, entry)
@@ -209,10 +212,54 @@ export function addSkillToConfig(
     skillsNode.set(name, entry)
   }
 
-  return doc.toString()
+  return serialize(doc)
+}
+
+/**
+ * Create the skill's entry if it's missing, then apply `updates` to it.
+ *
+ * `updateSkillInConfig` deliberately no-ops on an unknown skill (it returns
+ * `raw` unchanged), which is right for a blind edit but wrong for the
+ * enable/schedule/set path: skills are enumerated from disk, so a freshly
+ * created `skills/<name>/SKILL.md` has no aeon.yml entry yet and every attempt
+ * to turn it on silently did nothing — while the read path reported it as
+ * merely "disabled", because a missing entry defaults to `enabled: false`.
+ *
+ * Callers must confirm the skill exists on disk first; this will happily
+ * create an entry for a typo'd name.
+ */
+export function upsertSkillInConfig(raw: string, name: string, updates: Partial<SkillConfig>): string {
+  // addSkillToConfig is a no-op when the entry already exists, so composing the
+  // two is safe unconditionally. Seeding it with `updates` means a create lands
+  // the right enabled/schedule immediately rather than writing the defaults and
+  // overwriting them on the next line.
+  return updateSkillInConfig(addSkillToConfig(raw, name, updates), name, updates)
 }
 
 // --- Helpers ---
+
+// Set `key` to a double-quoted string scalar (see updateSkillInConfig). Passing a
+// node, not a raw string, also replaces an existing plain scalar's style.
+function setQuoted(
+  doc: ReturnType<typeof parseDocument>,
+  map: { set(key: unknown, value: unknown): void },
+  key: string,
+  value: string,
+): void {
+  const node = doc.createNode(value)
+  if (isScalar(node)) node.type = 'QUOTE_DOUBLE'
+  map.set(key, node)
+}
+
+// Serialize a parsed doc back to YAML with folding OFF. The yaml lib defaults to
+// lineWidth: 80, so a save would reserialize the whole file and wrap long scalar
+// values - a chain step written as a long one-liner gets folded across lines,
+// and the scheduler/chain-runner's single-line bash parser then reads only the
+// first line and runs the step with an empty brief. lineWidth: 0 keeps every
+// value on one line.
+function serialize(doc: ReturnType<typeof parseDocument>): string {
+  return doc.toString({ lineWidth: 0 })
+}
 
 function getMapValue(map: unknown, key: string): unknown {
   if (!isMap(map)) return undefined

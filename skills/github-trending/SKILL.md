@@ -1,11 +1,14 @@
 ---
-type: Skill
-mode: read-only
-name: GitHub Trending
-category: basics
+name: github-trending
 description: Curated trending across GitHub repos and the Hugging Face Hub (models, datasets, spaces) - filtered, clustered, and labeled by momentum with a one-line why-notable per pick.
-var: ""
-tags: [dev, research]
+metadata:
+  title: GitHub Trending
+  mode: read-only
+  category: basics
+  var: ""
+  tags:
+    - dev
+    - research
 ---
 <!-- autoresearch: variation B — sharper output via curation, clustering, "why notable" gate, momentum tags -->
 
@@ -138,9 +141,11 @@ sources: trending=ok|fail · gh_api=ok|fail · kept N/M
 
 Replace `Xt` with stars today, `Yk` with total stars in thousands, `[TAG]` with DEBUT/ACCELERATING/RETURNING/HOLDOVER.
 
+**Slate-integrity check (before you send).** The workflow captures this notify body verbatim to `output/.chains/github-trending.md`, which `vuln-scanner` reads for `owner/repo` scan targets. So every pick must stay a `[owner/repo](url)` line (a bare `https://github.com/owner/repo` permalink also parses). **Never** collapse the slate into a prose name list (e.g. "picks: OmniRoute, colibri, ...") - a bare repo name with no owner is unparseable and starves the scanner. Before sending, confirm the body carries one `[owner/repo](url)` line per surviving pick.
+
 ### A9. Log and exit
 
-Append to `memory/logs/${today}.md` under a single `### github-trending` heading, with a discriminator line `- branch: github` as the first bullet, followed by:
+This skill is `read-only`, so the workflow's read-only guard writes its `### github-trending` log entry from your captured output; a self-written entry would be a duplicate. Don't append to `memory/logs/` yourself - put this record in your **final output**, with a discriminator line `- branch: github` as the first bullet, followed by:
 - picked repos (owner/repo + tag)
 - dropped-for-noise count
 - source status
@@ -289,7 +294,7 @@ If fewer than 3 survivors after filtering, send a short note: *"Hugging Face Tre
 
 ### B8. Log and exit
 
-Append to `memory/logs/${today}.md` under a single `### github-trending` heading (the shared hub slug — the health loop parses this shape), with a discriminator line `- branch: hf (scope: <models|datasets|spaces|all>)` as the first bullet, followed by:
+This skill is `read-only`, so the workflow's read-only guard writes its `### github-trending` log entry from your captured output; a self-written entry would be a duplicate. Don't append to `memory/logs/` yourself - put this record in your **final output**, with a discriminator line `- branch: hf (scope: <models|datasets|spaces|all>)` as the first bullet, followed by:
 
 - picked artifacts (`id` + resource type + tag)
 - dropped-for-noise count per filter category

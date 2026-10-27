@@ -1,7 +1,6 @@
 import { parseArgs } from 'node:util'
 import { listRuns, getRunLogs } from '../../../dashboard/lib/runs.ts'
-import { ghAvailable } from '../../../dashboard/lib/gh.ts'
-import { emit, table, c, fail } from '../output.ts'
+import { emit, table, c, fail, requireGh, truncate } from '../output.ts'
 
 const USAGE = `aeon runs — recent Aeon-launched workflow runs
 
@@ -13,9 +12,12 @@ Options:
 
 export async function runsCommand(argv: string[]) {
   const sub = argv[0] && !argv[0].startsWith('-') ? argv[0] : 'ls'
-  if (sub === 'help' || argv.includes('-h') || argv.includes('--help')) { console.log(USAGE); return }
+  if (sub === 'help' || argv.includes('-h') || argv.includes('--help')) {
+    console.log(USAGE)
+    return
+  }
 
-  if (!ghAvailable()) fail('GitHub CLI not authenticated. Run: gh auth login')
+  requireGh()
 
   if (sub === 'ls') return listRunsCmd(argv.slice(argv[0] === 'ls' ? 1 : 0))
   if (sub === 'logs') return logsCmd(argv.slice(1))
@@ -37,7 +39,10 @@ function listRunsCmd(args: string[]) {
 
   const runs = listRuns(limit)
   emit(runs, () => {
-    if (runs.length === 0) { console.log(c.dim('(no recent Aeon runs)')); return }
+    if (runs.length === 0) {
+      console.log(c.dim('(no recent Aeon runs)'))
+      return
+    }
     table(
       ['ID', 'STATUS', 'WORKFLOW', 'WHEN'],
       runs.map(r => [String(r.id), statusCell(r.status, r.conclusion), truncate(r.workflow, 48), rel(r.created_at)]),
@@ -81,8 +86,4 @@ function rel(iso: string) {
   if (secs < 3600) return `${Math.round(secs / 60)}m ago`
   if (secs < 86400) return `${Math.round(secs / 3600)}h ago`
   return `${Math.round(secs / 86400)}d ago`
-}
-
-function truncate(s: string, n: number) {
-  return s.length > n ? s.slice(0, n - 1) + '…' : s
 }

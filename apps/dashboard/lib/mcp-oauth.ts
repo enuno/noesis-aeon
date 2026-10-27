@@ -15,16 +15,15 @@
 // builds on. Every network hop is best-effort with clear errors: a server that
 // advertises none of this simply can't be auto-connected, and we say so.
 import { randomBytes, createHash } from 'crypto'
+import { isRecord } from './utils'
 
-// --- secret names (kept in lockstep with McpPanel's tokenVar) ---------------
+// --- secret names -----------------------------------------------------------
 // A server's access token and its OAuth refresh material derive their secret
-// names from the slug, so the operator never types a secret name.
-export function tokenVar(slug: string): string {
-  return 'MCP_' + slug.toUpperCase().replace(/[^A-Z0-9_]/g, '_') + '_TOKEN'
-}
-export function oauthVar(slug: string): string {
-  return 'MCP_' + slug.toUpperCase().replace(/[^A-Z0-9_]/g, '_') + '_OAUTH'
-}
+// names from the slug, so the operator never types a secret name. Defined in
+// ./mcp-catalog (dependency-free, so the MCP panel and the credential catalog
+// can share the exact derivation without importing node:crypto via this file);
+// re-exported here because the OAuth flow is this module's public surface.
+export { tokenVar, oauthVar } from './mcp-catalog'
 
 // --- PKCE + state -----------------------------------------------------------
 function base64url(buf: Buffer): string {
@@ -63,6 +62,35 @@ async function fetchJson(url: string, init?: RequestInit): Promise<unknown> {
   return res.json()
 }
 
+// fetchJson deliberately returns `unknown` — these bodies come from an arbitrary
+// third-party authorization server. Narrow with a guard rather than a cast, so
+// the checks below are the ones the compiler sees too.
+interface PrmMetadata {
+  authorization_servers?: string[]
+  resource?: string
+}
+
+function isPrmMetadata(v: unknown): v is PrmMetadata {
+  if (!isRecord(v)) return false
+  const servers = v.authorization_servers
+  return (
+    (servers === undefined || (Array.isArray(servers) && servers.every(s => typeof s === 'string'))) &&
+    (v.resource === undefined || typeof v.resource === 'string')
+  )
+}
+
+function isAsMetadata(v: unknown): v is AsMetadata {
+  return isRecord(v) && typeof v.authorization_endpoint === 'string' && typeof v.token_endpoint === 'string'
+}
+
+function isClientCreds(v: unknown): v is ClientCreds {
+  return isRecord(v) && typeof v.client_id === 'string'
+}
+
+function isTokenSet(v: unknown): v is TokenSet {
+  return isRecord(v) && typeof v.access_token === 'string'
+}
+
 // Resolve a URL against a well-known suffix, preserving any resource path per
 // RFC 9728 (`/.well-known/oauth-protected-resource` MAY carry the resource path).
 function wellKnown(base: string, suffix: string): string {
@@ -71,13 +99,41 @@ function wellKnown(base: string, suffix: string): string {
   return `${u.origin}/.well-known/${suffix}${path && path !== '' ? path : ''}`
 }
 
+// The endpoints in AS metadata are server-supplied: the authorization endpoint
+// is handed to `open`/`xdg-open`/Start-Process, and the token/registration
+// endpoints receive the client credentials and refresh token. Only https: is
+// accepted (http: only on a loopback host, for local dev servers), so a
+// malicious metadata document cannot launch file:, custom-scheme or other
+// handlers on the operator's machine, or pull tokens over plaintext.
+const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]'])
+
+export function assertSafeEndpoint(raw: string, label: string): void {
+  let u: URL
+  try {
+    u = new URL(raw)
+  } catch {
+    throw new Error(`OAuth ${label} is not a valid URL`)
+  }
+  if (u.protocol === 'https:') return
+  if (u.protocol === 'http:' && (LOOPBACK_HOSTNAMES.has(u.hostname) || /^127(\.\d{1,3}){3}$/.test(u.hostname))) return
+  throw new Error(`OAuth ${label} must use https: (http: only for localhost), got ${u.protocol}`)
+}
+
 // Given an MCP server URL, discover its authorization server + endpoints.
 export async function discover(mcpUrl: string): Promise<Discovery> {
   const origin = new URL(mcpUrl).origin
   // 1. Protected Resource Metadata (RFC 9728) — optional. Try path- then origin-scoped.
-  let prm: { authorization_servers?: string[]; resource?: string } | undefined
+  let prm: PrmMetadata | undefined
   for (const url of [wellKnown(mcpUrl, 'oauth-protected-resource'), `${origin}/.well-known/oauth-protected-resource`]) {
-    try { prm = (await fetchJson(url)) as typeof prm; if (prm?.authorization_servers?.length) break } catch { /* try next */ }
+    try {
+      const body = await fetchJson(url)
+      if (isPrmMetadata(body)) {
+        prm = body
+        if (prm.authorization_servers?.length) break
+      }
+    } catch {
+      /* try next */
+    }
   }
   // If PRM names an authorization server, use it. Otherwise fall back to the MCP
   // server's OWN origin acting as its authorization server — the behavior compliant
@@ -94,22 +150,33 @@ export async function discover(mcpUrl: string): Promise<Discovery> {
     `${authServer.replace(/\/$/, '')}/.well-known/openid-configuration`,
   ]) {
     try {
-      const m = (await fetchJson(url)) as AsMetadata
-      if (m?.authorization_endpoint && m?.token_endpoint) { meta = m; break }
-    } catch { /* try next */ }
+      const m = await fetchJson(url)
+      if (isAsMetadata(m)) {
+        meta = m
+        break
+      }
+    } catch {
+      /* try next */
+    }
   }
   if (!meta) {
     throw new Error(
       `No OAuth metadata found for ${mcpUrl} — it advertises neither Protected Resource ` +
-      `Metadata nor Authorization Server Metadata. It likely uses a static bearer token; ` +
-      `paste one on the server row instead.`,
+        `Metadata nor Authorization Server Metadata. It likely uses a static bearer token; ` +
+        `paste one on the server row instead.`,
     )
   }
+  assertSafeEndpoint(meta.authorization_endpoint, 'authorization_endpoint')
+  assertSafeEndpoint(meta.token_endpoint, 'token_endpoint')
+  if (meta.registration_endpoint !== undefined) assertSafeEndpoint(meta.registration_endpoint, 'registration_endpoint')
   return { resource, authServer, metadata: meta }
 }
 
 // --- dynamic client registration (RFC 7591) ---------------------------------
-export interface ClientCreds { client_id: string; client_secret?: string }
+export interface ClientCreds {
+  client_id: string
+  client_secret?: string
+}
 
 export async function registerClient(
   registrationEndpoint: string,
@@ -123,12 +190,12 @@ export async function registerClient(
     response_types: ['code'],
     token_endpoint_auth_method: 'none', // public client (PKCE); AS may override
   }
-  const reg = (await fetchJson(registrationEndpoint, {
+  const reg = await fetchJson(registrationEndpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  })) as ClientCreds
-  if (!reg.client_id) throw new Error('Dynamic client registration returned no client_id')
+  })
+  if (!isClientCreds(reg)) throw new Error('Dynamic client registration returned no client_id')
   return { client_id: reg.client_id, client_secret: reg.client_secret }
 }
 
@@ -170,7 +237,10 @@ function tokenForm(params: Record<string, string | undefined>): URLSearchParams 
 }
 
 async function postToken(tokenEndpoint: string, form: URLSearchParams, clientSecret?: string): Promise<TokenSet> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' }
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/x-www-form-urlencoded',
+    Accept: 'application/json',
+  }
   // Confidential clients authenticate with HTTP Basic; public (PKCE) clients pass client_id in the body.
   if (clientSecret) {
     const clientId = form.get('client_id') ?? ''
@@ -180,8 +250,8 @@ async function postToken(tokenEndpoint: string, form: URLSearchParams, clientSec
   const res = await fetch(tokenEndpoint, { method: 'POST', headers, body: form.toString() })
   const text = await res.text()
   if (!res.ok) throw new Error(`token endpoint → ${res.status}: ${text.slice(0, 200)}`)
-  const tok = JSON.parse(text) as TokenSet
-  if (!tok.access_token) throw new Error('token endpoint returned no access_token')
+  const tok: unknown = JSON.parse(text)
+  if (!isTokenSet(tok)) throw new Error('token endpoint returned no access_token')
   return tok
 }
 
@@ -194,29 +264,19 @@ export async function exchangeCode(opts: {
   redirectUri: string
   resource: string
 }): Promise<TokenSet> {
-  return postToken(opts.tokenEndpoint, tokenForm({
-    grant_type: 'authorization_code',
-    code: opts.code,
-    code_verifier: opts.verifier,
-    client_id: opts.clientId,
-    client_secret: opts.clientSecret,
-    redirect_uri: opts.redirectUri,
-    resource: opts.resource,
-  }), opts.clientSecret)
-}
-
-export async function refreshToken(opts: {
-  tokenEndpoint: string
-  refreshToken: string
-  clientId: string
-  clientSecret?: string
-}): Promise<TokenSet> {
-  return postToken(opts.tokenEndpoint, tokenForm({
-    grant_type: 'refresh_token',
-    refresh_token: opts.refreshToken,
-    client_id: opts.clientId,
-    client_secret: opts.clientSecret,
-  }), opts.clientSecret)
+  return postToken(
+    opts.tokenEndpoint,
+    tokenForm({
+      grant_type: 'authorization_code',
+      code: opts.code,
+      code_verifier: opts.verifier,
+      client_id: opts.clientId,
+      client_secret: opts.clientSecret,
+      redirect_uri: opts.redirectUri,
+      resource: opts.resource,
+    }),
+    opts.clientSecret,
+  )
 }
 
 // The JSON blob persisted as the MCP_<SLUG>_OAUTH secret. Everything the runtime

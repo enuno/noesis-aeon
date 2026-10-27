@@ -1,5 +1,4 @@
 ---
-type: Reference
 title: MCP OAuth — durable headless auth for OAuth-gated MCP servers
 description: How the dashboard captures an OAuth-gated MCP server's tokens and keeps them fresh for headless runs, the parallel to the grok X-account flow, and the known limits.
 ---
@@ -12,6 +11,8 @@ access tokens are short-lived and minted through a browser flow a headless GitHu
 Actions run can't perform. This is the same problem the grok harness solves for the
 X-account login — and the solution here mirrors it: capture once in the dashboard,
 store as repo secrets, refresh before every run.
+
+This page is about MCP servers your skills call. Signing in to Aeon's own hosted MCP server ([www.aeon.fun/connect/mcp](https://www.aeon.fun/connect/mcp)) from ChatGPT, Claude or Cursor is a different flow, handled by Aeon Connect.
 
 ## The flow
 
@@ -38,6 +39,26 @@ store as repo secrets, refresh before every run.
    is sourced, never fails the run, and never prints a token (masked with
    `::add-mask::`). Covers both harnesses (Claude via `--mcp-config`, grok natively).
 
+## Current catalog
+
+The featured OAuth servers (all probed live; the catalog file carries per-server
+discovery notes) and their companion skills:
+
+| Server (slug) | MCP URL | Scopes requested | Rotates refresh token? | Skill |
+|---|---|---|---|---|
+| Base (`base`) | `mcp.base.org` | `agent_wallet:transact` | yes | `base-mcp` |
+| Robinhood Trading (`robinhood-trading`) | `agent.robinhood.com/mcp/trading` | *(default — no `offline_access`; it only advertises `internal`)* | unverified — assume yes | `robinhood-mcp` |
+| glim.sh (`glim`) | `glim.sh/mcp` | `openid offline_access` | yes — **verified live 2026-07-16** | `glim-mcp` |
+| Executor (`executor`) | `executor.sh/mcp` | `openid offline_access` | yes — **verified live 2026-07-16** | `executor-mcp` |
+| Finance District Agent Wallet (`finance-district`) | `wallet-mcp.fd.xyz` | `openid offline_access api://fd-agent-wallet-mcp/mcp:tools` (resource scope gates tool access) | yes | `finance-district-mcp` |
+| PostHog (`posthog`) | `mcp.posthog.com/mcp` | `openid user:read organization:read project:read error_tracking:read` (read scopes only; `user:read` is required or the session 403s on init) | unverified — assume yes (no `offline_access`; refresh via the `refresh_token` grant) | `posthog-errors` |
+| Higgsfield (`higgsfield`) | `mcp.higgsfield.ai/mcp` | `openid email offline_access` | yes | `higgsfield` |
+
+The glim and Executor loops were verified end-to-end on a live instance
+(Connect → per-run refresh → PAT-persisted rotation → refresh off the persisted
+token, no re-connect): every catalog provider rotates, so treat a secrets-write
+token (`GH_GLOBAL`, or the optional `GH_SECRETS_PAT`) as **required** in practice.
+
 ## Code map
 
 | Piece | File |
@@ -61,9 +82,12 @@ store as repo secrets, refresh before every run.
   the old one is invalidated the moment it's used, so unless the replacement is
   saved the *next* headless run's refresh fails (`no access_token` / `invalid_grant`)
   and auth breaks one run later. Persisting a secret needs a **secrets-write
-  credential** — the default `GITHUB_TOKEN` cannot write secrets. To make refresh
-  durable for rotating providers, add a fine-grained PAT with **Secrets: read/write**
-  on this repo as the secret **`MCP_SECRETS_PAT`** (or a repo-wide `GH_GLOBAL`);
+  credential** - the default `GITHUB_TOKEN` cannot write secrets. To make refresh
+  durable for rotating providers, set **`GH_GLOBAL`**, the instance's one classic
+  PAT with `repo` + `workflow` ([Cross-repo access](CONFIGURATION.md#cross-repo-access);
+  `./aeon init` sets it from your gh login). **`GH_SECRETS_PAT`** is optional and
+  tried first: a fine-grained PAT with **Secrets: read/write** on this repo, for
+  keeping secrets-write on its own token;
   `scripts/mcp-oauth-refresh.sh` then saves each rotated refresh token back to its
   `MCP_<SLUG>_OAUTH` secret and warns loudly when it can't. **After adding the PAT,
   re-connect the affected server once** to seed a valid refresh token — a refresh
