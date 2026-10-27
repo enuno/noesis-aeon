@@ -65,13 +65,13 @@
   "action-converter": {
     "last_dispatch": "2026-10-27T20:22:45Z",
     "last_status": "failed",
-    "last_failed": "2026-10-27T20:39:30Z",
-    "total_runs": 8,
+    "last_failed": "2026-10-27T20:52:33Z",
+    "total_runs": 9,
     "total_successes": 0,
-    "total_failures": 8,
-    "consecutive_failures": 8,
+    "total_failures": 9,
+    "consecutive_failures": 9,
     "success_rate": 0,
-    "last_error": "5d62c81\",\"total_cost_usd\":0,\"usage\":{\"input_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"output_tokens\":0,\"server_tool_use\":{\"web_search_requests\":0,\"web_fetch_requests\":0},\""
+    "last_error": "kimi exited 1: Warning: this folder is not trusted; skipped 2 project-level MCP servers: base (http: https://mcp.base.org), glim (http: https://glim.sh/mcp).   Run `kimi` here and choose \"Trust this f"
   },
   "fleet-control": {
     "last_dispatch": "2026-10-27T20:46:56Z",
