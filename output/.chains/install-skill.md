@@ -1,0 +1,1 @@
+install-skill aborted: var empty — pass a pack repo e.g. "owner/repo" (optionally + skill slugs)

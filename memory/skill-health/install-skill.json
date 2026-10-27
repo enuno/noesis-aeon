@@ -1,0 +1,16 @@
+{
+  "skill": "install-skill",
+  "last_analyzed": "2026-10-27T21:06:16Z",
+  "quality_score": 1,
+  "assessment": "install-skill aborted on an empty pack-repo input and returned only a usage error, so nothing was installed.",
+  "flags": [],
+  "avg_score": 1,
+  "history": [
+    {
+      "date": "2026-10-27",
+      "score": 1,
+      "ts": "2026-10-27T21:06:16Z",
+      "harness": "grok"
+    }
+  ]
+}
