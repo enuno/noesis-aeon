@@ -64,14 +64,16 @@
   },
   "action-converter": {
     "last_dispatch": "2026-10-27T20:22:45Z",
-    "last_status": "failed",
+    "last_status": "success",
     "last_failed": "2026-10-27T20:52:33Z",
-    "total_runs": 9,
-    "total_successes": 0,
+    "total_runs": 10,
+    "total_successes": 1,
     "total_failures": 9,
-    "consecutive_failures": 9,
-    "success_rate": 0,
-    "last_error": "kimi exited 1: Warning: this folder is not trusted; skipped 2 project-level MCP servers: base (http: https://mcp.base.org), glim (http: https://glim.sh/mcp).   Run `kimi` here and choose \"Trust this f"
+    "consecutive_failures": 0,
+    "success_rate": 0.1,
+    "last_error": "kimi exited 1: Warning: this folder is not trusted; skipped 2 project-level MCP servers: base (http: https://mcp.base.org), glim (http: https://glim.sh/mcp).   Run `kimi` here and choose \"Trust this f",
+    "last_success": "2026-10-27T21:03:06Z",
+    "last_quality_score": 2
   },
   "fleet-control": {
     "last_dispatch": "2026-10-27T20:46:56Z",
