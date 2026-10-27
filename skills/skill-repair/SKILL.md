@@ -1,11 +1,15 @@
 ---
-type: Skill
-name: Skill Repair
-category: evolution
+name: skill-repair
 description: Diagnose and fix failing or degraded skills automatically - systemic-first triage, per-category playbooks, and a verification plan
-var: ""
-tags: [meta, dev]
-depends_on: [skill-health]
+metadata:
+  title: Skill Repair
+  category: evolution
+  var: ""
+  tags:
+    - meta
+    - dev
+  depends_on:
+    - skill-health
 ---
 <!-- autoresearch: variation D — systemic-first triage + per-category playbooks + verification (folds A's regression hunter, B's structured PR + risk class + verdict, C's exit taxonomy + preflight + cooldown) -->
 
@@ -118,7 +122,7 @@ Categories follow `CLAUDE.md`. Pick the **most specific** category that fits the
 |---|---|
 | **`api-change`** | WebFetch the live API spec / status page / release notes. Update endpoints, payload shape, headers, error codes in the skill. Cite the spec URL in the PR body. Never guess — if WebFetch fails, drop to `REPAIR_DIAGNOSED_NO_FIX`. |
 | **`rate-limit`** | Add backoff (`sleep`), reduce request count, or add a fallback endpoint. Never raise the limit from the skill side. If the skill's `schedule` is too aggressive, propose a less-frequent cron in the PR body but **don't edit `aeon.yml`** unless the issue file already authorizes it. |
-| **`timeout`** | Split work into stages, add early-return on partial success, downgrade `model:` to `claude-sonnet-4-6` or `claude-haiku-4-5-20251001` for the skill that doesn't need Opus. |
+| **`timeout`** | Split work into stages, add early-return on partial success, downgrade `model:` to `claude-haiku-5-5` for the skill that doesn't need Sonnet or Opus. |
 | **`sandbox-limitation`** | Usually the "sandbox blocks the network" myth — there is **no** network sandbox. The real cause is a bare `$SECRET` on the command line (refused by the Bash permission layer) or a non-allowlisted command. Fix: route auth-required calls through `./secretcurl` with a `{ENV_NAME}` placeholder, or `gh api` for GitHub (auth handled internally). **Irreversible side-effects** (email / spend / on-chain / deploy) run **in-run** via `./secretcurl` as the skill's final, fail-closed action — never for reads. Add/refresh a "Network note" section. (There are **no** `scripts/prefetch-*.sh` or `scripts/postprocess-*.sh` scripts — both patterns were retired; auth'd reads and irreversible sends alike happen in-run.) |
 | **`prompt-bug`** | Minimum-edit specificity insertion. Don't rewrite — add the missing constraint, a forbidden phrase, a required output structure, or a clarifying example. Diff should be < 30 added/removed lines. |
 | **`output-format`** / **`quality-regression`** | Re-read the target skill's own output spec in its `SKILL.md`. Edit the skill so the next run satisfies that spec. Cite the exact requirement (section / line) in the PR body. |
@@ -192,10 +196,12 @@ If risk is HIGH, also: `gh pr edit "$PR_URL" --add-label manual-review`.
 
 ## 7. Update issue tracker (`memory/issues/`)
 
-- If an open issue for this skill exists:
-  - Fix applied → set `status: resolved`, `resolved_at: ${today}`, `fix_pr: <url>`. Move row from Open → Resolved in `INDEX.md`.
+**An open PR is not a fix.** This step runs immediately after §6 opened the PR, and nothing here can know whether that PR will ever merge. Do **not** write `status: resolved` — that records a repair that has not shipped, and if the PR is later closed unmerged the issue stays permanently marked fixed while the failure is still live. `skill-health` reconciles the real outcome once the PR's fate is known (see its "Reconcile `fix-pending` issues" step).
+
+- If an issue with `status: open` or `status: fix-pending` for this skill exists:
+  - PR opened → set `status: fix-pending`, `fix_pr: <url>`, and append `## Repair Attempt — ${today}` with the dossier. **Leave the row under Open in `INDEX.md`** — it is not resolved yet.
   - No fix possible → append `## Repair Attempt — ${today}` with the dossier and reason.
-- If no issue exists but a real problem was found and fixed → create `memory/issues/ISS-{NNN}.md` with status already `resolved` (NNN = next free number from INDEX.md).
+- If no issue exists but a real problem was found and a PR was opened for it → create `memory/issues/ISS-{NNN}.md` with `status: fix-pending` and `fix_pr: <url>` (NNN = next free number from INDEX.md), filed under **Open**.
 - If systemic clustering fired in step 2 → ensure `affected_skills:` lists every skill matched by the signature.
 
 ## 8. Persist cooldown

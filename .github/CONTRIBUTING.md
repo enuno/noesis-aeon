@@ -14,9 +14,10 @@ Most contributions fall into one of three buckets, each with its own checklist b
 
 ## Before you start
 
-- **Fork or use the template.** This repo is a public template — click **Use this
-  template** (or `gh repo fork aeonfun/aeon --clone`). Run your own instance as
-  a fork; open PRs back here for changes that benefit everyone.
+- **Fork to contribute.** PRs come from a fork (`gh repo fork aeonfun/aeon --clone`).
+  Just want to run an agent? Use [Aeon Connect](https://www.aeon.fun/connect)
+  (browser) or `./aeon init` (terminal) instead; open PRs back here for changes
+  that benefit everyone.
 - **Branch from `main`.** Never push to `main`. Use a descriptive branch name
   (`feat/…`, `fix/…`, `docs/…`).
 - **One change per PR.** A focused 20-line fix lands faster than a 500-line bundle.
@@ -47,6 +48,10 @@ for the dashboard app itself is documented in
 ```bash
 bin/new-from-template <template> <skill-name> --category <pack>
 ```
+
+`<pack>` is one of the six categories: `core`, `evolution`, `basics`, `dev`,
+`crypto`, `productivity` (see [`docs/skill-packs.md`](../docs/skill-packs.md)).
+Leave it off to keep the template's own default.
 
 Every `SKILL.md` opens with YAML frontmatter — the full contract is in
 [`docs/examples/skill-templates/TEMPLATE.md`](../docs/examples/skill-templates/TEMPLATE.md). Essentials:
@@ -89,22 +94,24 @@ Give it a clear license, then validate before publishing:
 
 The full manifest schema, field reference, trust model, and a worked example are in [`docs/community-skill-packs.md`](../docs/community-skill-packs.md).
 
-**3. List it in the registry.** With your pack repo public, open a PR here that adds **both**: a row to the **Community Packs** table in the [README](README.md#community-packs) **and** a matching entry in [`catalog/skill-packs.json`](../catalog/skill-packs.json). Full steps: the [publishing checklist](../docs/community-skill-packs.md#pack-maintainers-publishing-checklist).
+**3. List it in the registry.** With your pack repo public, open a PR here that adds **both**: a row to the **Listed packs** table in [`docs/community-skill-packs.md`](../docs/community-skill-packs.md#listed-packs) **and** a matching entry in [`catalog/skill-packs.json`](../catalog/skill-packs.json). Full steps: the [publishing checklist](../docs/community-skill-packs.md#pack-maintainers-publishing-checklist).
 
 ### Contributing an LLM gateway
 
 A gateway is wired through a handful of files, all following the existing
-pattern — so copy an entry of the same **tier**. There are two: **native** (the
-provider already speaks the Anthropic API — just point `ANTHROPIC_BASE_URL` at it,
-like Bankr/OpenRouter/UsePod/Grok) and **sidecar** (OpenAI-compatible — bridged
+pattern - so copy an entry of the same **tier**. There are two: **native** (the
+provider already speaks the Anthropic API - just point `ANTHROPIC_BASE_URL` at it,
+like Bankr/OpenRouter/UsePod/Grok/GLM) and **sidecar** (OpenAI-compatible - bridged
 per run by a [claude-code-router](https://github.com/musistudio/claude-code-router)
 sidecar, like Venice/Surplus).
 
 1. **`apps/dashboard/lib/gateway-registry.ts`** — add `slug: { label, secretName, prefixes, domain }` (empty `prefixes: []` = dropdown-only, no auto-detect). This is the **single source of truth**: it auto-flows to the `GatewayProvider` union (`lib/types.ts`), `CLAUDE_AUTH_SECRETS` (`lib/constants.ts`), the secrets route's gateway-key detection, the auth key-prefix detection (`lib/auth-provider.ts`), and the service-icon domain.
-2. **`apps/dashboard/components/AuthModal.tsx`** — add the slug to `PROVIDER_OPTIONS` (this dropdown list is **not** registry-derived).
+2. **Connect modal** - nothing to edit. Its provider dropdown and key-prefix detection (`apps/dashboard/lib/connect-detect.ts`) read `harness-adapter/gateways.json`, so the gateway shows up once step 6 regenerates it.
 3. **`apps/dashboard/lib/secrets-catalog.ts`** — add a `BUILTIN_SECRETS` row (description only) so the secret shows in Settings (and in `aeon secrets ls`).
 4. **`scripts/llm-gateway.sh`** — add an `aeon_present()` case, add the slug to the auto-resolver's default `GATEWAY_ORDER`, and add a `case` branch (a **native** provider exports `ANTHROPIC_BASE_URL` + the auth token; a **sidecar** provider calls `start_ccr_sidecar <slug> <openai-url> <key> <model>`).
 5. **`.github/workflows/aeon.yml`** — pass the new secret (and any `*_MODEL` override **variables**) into the run's `env:` (also `messages.yml`), so the resolver can see it.
+
+6. **`harness-adapter/adapters/claude.sh`** - add an entry to the `gw-meta` block in the same position as in `GATEWAY_ORDER` (label, secrets, prefixes, transport, base URL, where to get a key), then run `harness-adapter/bin/generate-harnesses-json` and commit the regenerated `harness-adapter/gateways.json`. `aeon init` and `bin/onboard` read it, and `scripts/tests/test_credential_manifest.sh` (ci-tests) fails if it disagrees with steps 1, 4 or 5.
 
 Then add a row to the gateway table in [`docs/CONFIGURATION.md`](../docs/CONFIGURATION.md#llm-gateways). To
 verify the full loop: paste a key in the dashboard (prefix should auto-detect, or
@@ -127,14 +134,14 @@ catalog/                 ← registries the dashboard reads (generated + hand-au
 bin/                     ← operator + maintainer CLI (run from repo root, e.g. bin/add-skill)
   onboard                ← validate the fork's setup (secrets, workflows, channels)
   add-skill              ← import skills from GitHub repos (with security scanning)
-  add-mcp                ← register Aeon as an MCP server for Claude Desktop/Code
+  add-mcp                ← register Aeon as a local MCP server for Claude Desktop/Code
   install-skill-pack     ← install a curated community skill pack
   export-skill           ← package skills for standalone distribution
   new-from-template      ← scaffold a skill from a template (--category sets its pack)
   generate-skills-json   ← regenerate catalog/skills.json from SKILL.md files
   generate-packs-json    ← regenerate catalog/packs.json from the two configs above
 docs/                    ← reference docs, community registries, adopter examples
-  CORE.md · CAPABILITIES.md · OKF.md · harnesses.md · skill-packs.md · telegram-* · help/status
+  CORE.md · CAPABILITIES.md · harnesses.md · skill-packs.md · telegram-* · help/status
   ECOSYSTEM.md           ← products & agents built on Aeon (community-curated)
   SHOWCASE.md            ← leaderboard of active forks
   examples/              ← MCP quickstart, portable workflow templates, skill templates
@@ -146,16 +153,16 @@ skills/                  ← each skill is a SKILL.md prompt file (`category:` =
 apps/                    ← standalone sub-projects, each with its own package.json
   dashboard/             ← local web UI (Next.js + json-render feed)
   cli/                   ← headless CLI (`./aeon <command>`) — the dashboard's features as commands
-  mcp-server/            ← MCP server — exposes skills as Claude tools
+  mcp-server/            ← local stdio MCP server (the hosted one lives in Aeon Connect)
   webhook/               ← Telegram instant-mode Cloudflare Worker (~1s delivery)
-memory/                  ← native OKF v0.1 bundle: every .md carries a type: (see docs/OKF.md)
-  MEMORY.md              ← goals, active topics, pointers (type: Index)
+memory/                  ← durable memory the agent reads/writes across runs
+  MEMORY.md              ← goals, active topics, pointers
   cron-state.json        ← per-skill execution metrics (status, success rate, quality)
   skill-health/          ← rolling quality scores per skill (last 30 runs)
   token-usage.csv        ← token cost tracking per run
-  issues/                ← structured issue tracker for skill failures (type: Issue)
-  topics/                ← OKF concepts by topic — tokens, protocols, narratives, repos…
-  logs/                  ← daily activity logs (YYYY-MM-DD.md; type: Log)
+  issues/                ← structured issue tracker for skill failures
+  topics/                ← durable knowledge notes by topic - tokens, protocols, narratives, repos
+  logs/                  ← daily activity logs (YYYY-MM-DD.md)
 output/                  ← everything skills produce, committed to the repo
   articles/ · images/    ← published deliverables
   .chains/               ← transient chain-step handoff (consumed by downstream steps)
@@ -164,8 +171,6 @@ scripts/
   notify-jsonrender.sh   ← source for ./notify-jsonrender (feed cards via Haiku)
   secretcurl.sh          ← source for ./secretcurl (auth'd curl; {ENV} placeholders keep secrets off the command line)
   skill-runs             ← audit recent GitHub Actions skill runs
-  okf-validate.mjs       ← assert OKF conformance (the ci-okf gate); okf-backfill.mjs stamps a missing type:
-  okf-config.json        ← OKF scope: roots, exclusions, per-family types
 .github/workflows/
   aeon.yml               ← skill runner (workflow_dispatch, issues, quality scoring)
   chain-runner.yml       ← skill chain executor (parallel + sequential pipelines)
@@ -184,12 +189,42 @@ protect:
 | `ci-packs-json` | `packs.json` matches a fresh `bin/generate-packs-json` |
 | `ci-skill-category` | every `SKILL.md` declares a valid `category:` |
 | `ci-capabilities-parity` | the capabilities taxonomy stays in sync |
+| `ci-skill-packs` | `catalog/skill-packs.json` is well-formed **and** matches the Listed packs table in `docs/community-skill-packs.md` |
+| `ci-apps` | `apps/**` passes the biome format check; the dashboard typechecks, lints, tests and builds; the cli typechecks, lints and runs its `aeon init` sandbox tests; mcp-server builds; the webhook Worker lints, tests and bundles |
+| `ci-tests` | the `scripts/tests/` suites pass (a new `scripts/tests/test_*` file goes into a lane in `scripts/tests/ci-lanes.txt`, or ci-tests fails) |
+| `ci-agents-md` | `AGENTS.md` is regenerated from `STRATEGY.md` |
+| `ci-readme-catalog` | the README's skill tables and counts match `catalog/packs.json` |
+| `ci-shellcheck` | the root `aeon` script and shell under `scripts/`, `bin/`, `harness-adapter/` and skill helpers pass shellcheck |
+| `ci-skill-integrity` | every skill is in `eyebrowlock.json`, and none gained reach or a new CRITICAL finding since it was locked |
+| `ci-aeon-skill-sync` | the two copies of the `aeon` operator skill stay in sync |
+| `ci-harnesses-json` | `harness-adapter/harnesses.json` matches a fresh `generate-harnesses-json` |
+| `ci-harness-cli` | each pinned harness CLI still works with its adapter |
+| `ci-gate` | the required check on `main`: waits for every other check on the PR and fails if any failed |
 
 Run the checks locally before pushing:
 
 ```bash
 bash scripts/check-skill-categories.sh
 bash scripts/check-capabilities-parity.sh
+node scripts/validate-skill-packs.mjs          # listing a community pack
+node scripts/validate-config.js                # aeon.yml structure, schedules and skill keys
+node scripts/validate-readme-catalog.mjs       # README tables and counts vs packs.json
+node bin/generate-skill-icons --check          # every skill has an icon glyph
+node scripts/gen-agents-md.js --check
+bash scripts/lint-shell.sh                     # shellcheck
+npx --yes @biomejs/biome@2.5.15 ci .           # formatting for apps/** (fix with `npm run format`)
+```
+
+Adding or renaming a skill also changes generated files: run `bin/generate-skills-json`
+and `bin/generate-packs-json`, add the skill to `catalog/skill-icons.json`, update the README
+counts that `validate-readme-catalog.mjs` reports, and refresh `eyebrowlock.json` with
+`eyebrow scan --path . --lockfile eyebrowlock.json` (see the header of
+`.github/workflows/ci-skill-integrity.yml`).
+
+Touching `apps/**`? Run that app's own checks — for the dashboard:
+
+```bash
+cd apps/dashboard && npm ci && npm run typecheck && npm test && npm run build
 ```
 
 If `ci-skills-json`/`ci-packs-json` fails, you changed a generator input without

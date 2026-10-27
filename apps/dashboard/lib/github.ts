@@ -6,16 +6,97 @@ import { REPO_ROOT } from './gh'
 const GITHUB_API = 'https://api.github.com'
 
 // Minimal shapes for the GitHub "Get repository content" REST responses.
-interface GitHubContentFile { content: string; sha: string; encoding: string }
-interface GitHubContentEntry { name: string; type: 'file' | 'dir' | 'symlink' | 'submodule'; path: string }
+interface GitHubContentFile {
+  content: string
+  sha: string
+  encoding: string
+}
+interface GitHubContentEntry {
+  name: string
+  type: 'file' | 'dir' | 'symlink' | 'submodule'
+  path: string
+}
 
 // Outcome of the local-mode git commit+push. `reason` is set only when the push
 // failed (surfaced to the UI as `syncError`). Distinct from the wire-level
 // SyncResult in lib/types.ts, which is the client-facing JSON response body.
-export interface CommitResult { synced: boolean; reason?: string }
+export interface CommitResult {
+  synced: boolean
+  reason?: string
+}
 
 export function isLocal() {
   return !process.env.GITHUB_TOKEN || !process.env.GITHUB_REPO
+}
+
+// Per-path in-process mutex. Five independent call sites (skills PATCH/DELETE,
+// upload, gateway.syncGatewayProvider, gateway.syncHarness) each do their own
+// unlocked getFileContent -> modify -> updateFile -> commitAndPush against
+// aeon.yml. Without serialization, two requests firing close together (e.g.
+// clicking the harness picker right after the model picker) can interleave:
+// both read the same starting content, and whichever writes last silently wins
+// the whole file — including carrying forward a field the losing request never
+// touched, into a commit whose message only mentions the field it meant to
+// change. Wrap every such critical section in withFileLock(path, ...) so they
+// queue instead of racing. Local-only (per-process); irrelevant in hosted mode,
+// where the Contents API's sha check already rejects a stale write.
+const fileLocks = new Map<string, Promise<unknown>>()
+
+export function withFileLock<T>(path: string, fn: () => Promise<T>): Promise<T> {
+  const prior = fileLocks.get(path) ?? Promise.resolve()
+  const run = prior.then(fn, fn)
+  fileLocks.set(
+    path,
+    run.catch(() => {}),
+  )
+  return run
+}
+
+// Is this git remote URL the shared Aeon template (aeonfun/aeon, or the
+// aaronjmars/aeon redirect) rather than an operator's instance?
+export function isTemplateRemote(url: string): boolean {
+  return /github\.com[:/]+(aeonfun|aaronjmars)\/aeon(\.git)?\/?$/i.test(url.trim())
+}
+
+type Git = (...args: string[]) => string
+
+// Where a local push may go: `origin` by name, never to whatever the branch
+// happens to track (a half-converted clone of the template can still track
+// aeonfun/aeon), and never to the template itself. Returns the reason to
+// refuse, or null when origin is the operator's instance. Shared by
+// commitAndPush and `aeon sync` (lib/sync.ts).
+export function originRefusal(git: Git): string | null {
+  let origin = ''
+  try {
+    origin = git('remote', 'get-url', 'origin')
+  } catch {
+    /* no origin */
+  }
+  if (!origin) return 'no origin remote - run ./aeon init'
+  if (isTemplateRemote(origin)) return `origin is the Aeon template (${origin}), not your instance - run ./aeon init`
+  return null
+}
+
+// Push the current branch to origin explicitly. If that is rejected (most
+// likely behind origin, e.g. an Actions bot commit), rebase onto origin's copy
+// of the branch and retry once; a conflicting rebase is aborted and rethrown.
+export function pushHeadToOrigin(git: Git): void {
+  const branch = git('rev-parse', '--abbrev-ref', 'HEAD')
+  try {
+    git('push', 'origin', `HEAD:${branch}`)
+  } catch {
+    try {
+      git('pull', '--rebase', '--autostash', 'origin', branch)
+      git('push', 'origin', `HEAD:${branch}`)
+    } catch (e) {
+      try {
+        git('rebase', '--abort')
+      } catch {
+        /* not mid-rebase */
+      }
+      throw e
+    }
+  }
 }
 
 /**
@@ -30,27 +111,27 @@ export function isLocal() {
  */
 export function commitAndPush(paths: string[], message: string): CommitResult {
   if (isLocal() === false) return { synced: true } // hosted mode: edit already committed via API
-  const git = (...args: string[]) =>
-    execFileSync('git', args, { stdio: 'pipe', cwd: REPO_ROOT }).toString().trim()
+  const git = (...args: string[]) => execFileSync('git', args, { stdio: 'pipe', cwd: REPO_ROOT }).toString().trim()
   const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e)).slice(0, 200)
   try {
+    // Push to `origin` by name, never to the template (the operator's edit
+    // stays on disk, reported as not synced). See originRefusal.
+    const refusal = originRefusal(git)
+    if (refusal) return { synced: false, reason: refusal }
     git('add', '--', ...paths) // stages content changes AND deletions under these paths
     let staged = true
-    try { git('diff', '--cached', '--quiet', '--', ...paths); staged = false } catch { staged = true }
+    try {
+      git('diff', '--cached', '--quiet', '--', ...paths)
+      staged = false
+    } catch {
+      staged = true
+    }
     if (!staged) return { synced: true } // nothing changed in these paths
     git('commit', '-m', message, '--', ...paths)
     try {
-      git('push')
-    } catch {
-      // Most likely behind origin/main (e.g. an Actions bot commit). Rebase onto
-      // the remote and retry once; abort cleanly if it conflicts.
-      try {
-        git('pull', '--rebase', '--autostash')
-        git('push')
-      } catch (e) {
-        try { git('rebase', '--abort') } catch { /* not mid-rebase */ }
-        return { synced: false, reason: errMsg(e) }
-      }
+      pushHeadToOrigin(git)
+    } catch (e) {
+      return { synced: false, reason: errMsg(e) }
     }
     return { synced: true }
   } catch (e) {
@@ -73,6 +154,16 @@ function authHeaders(token: string) {
   }
 }
 
+// Authenticated GET against the repo's "contents" endpoint. Uncached: the
+// dashboard reads config it may have just written.
+function contentsGet(path: string): Promise<Response> {
+  const { token, repo } = getConfig()
+  return fetch(`${GITHUB_API}/repos/${repo}/contents/${path}`, {
+    headers: authHeaders(token),
+    cache: 'no-store',
+  })
+}
+
 // Parse a GitHub "list contents" response into its entry array. A 404 and a
 // non-array body (i.e. a single file, not a directory) both yield [] — an
 // absent-or-not-a-directory path is not an error for callers that list.
@@ -90,17 +181,23 @@ export async function getFileContent(path: string): Promise<{ content: string; s
     const content = await readFile(join(REPO_ROOT, path), 'utf-8')
     return { content, sha: '' }
   }
-  const { token, repo } = getConfig()
-  const res = await fetch(`${GITHUB_API}/repos/${repo}/contents/${path}`, {
-    headers: authHeaders(token),
-    cache: 'no-store',
-  })
+  const res = await contentsGet(path)
   if (!res.ok) throw new Error(`GitHub API ${res.status}: failed to read ${path}`)
   const data = (await res.json()) as GitHubContentFile
   return {
     content: Buffer.from(data.content, 'base64').toString('utf-8'),
     sha: data.sha,
   }
+}
+
+/**
+ * True only when a read failed because the file does not exist (local ENOENT or a
+ * GitHub 404). A 401, 403, 5xx or network error is not "missing": callers that
+ * would otherwise create the file or start from an empty one must rethrow it.
+ */
+export function isMissingFileError(e: unknown): boolean {
+  if (!(e instanceof Error)) return false
+  return (e as NodeJS.ErrnoException).code === 'ENOENT' || /^GitHub API 404:/.test(e.message)
 }
 
 export async function updateFile(path: string, content: string, sha: string, _message: string): Promise<void> {
@@ -165,8 +262,10 @@ export async function saveFile(
   let sha: string | undefined
   try {
     sha = (await getFileContent(path)).sha
-  } catch {
-    // File doesn't exist yet - create it
+  } catch (e) {
+    // Only a missing file means "create it"; any other read error would otherwise
+    // surface as a confusing create failure and hide the real cause.
+    if (!isMissingFileError(e)) throw e
   }
   if (sha) {
     await updateFile(path, content, sha, opts.updateMsg)
@@ -190,12 +289,7 @@ export async function getDirectory(path: string): Promise<Array<{ name: string; 
       return []
     }
   }
-  const { token, repo } = getConfig()
-  const res = await fetch(`${GITHUB_API}/repos/${repo}/contents/${path}`, {
-    headers: authHeaders(token),
-    cache: 'no-store',
-  })
-  return parseContentsList(res, path)
+  return parseContentsList(await contentsGet(path), path)
 }
 
 // --- Remote repo helpers (for importing skills) ---
@@ -207,11 +301,12 @@ function remoteAuthHeaders(): Record<string, string> {
   }
 }
 
-export async function getRemoteDirectory(remoteRepo: string, path: string): Promise<Array<{ name: string; type: string }>> {
+export async function getRemoteDirectory(
+  remoteRepo: string,
+  path: string,
+): Promise<Array<{ name: string; type: string }>> {
   // Always uses GitHub API (remote repo)
-  const url = path
-    ? `${GITHUB_API}/repos/${remoteRepo}/contents/${path}`
-    : `${GITHUB_API}/repos/${remoteRepo}/contents`
+  const url = path ? `${GITHUB_API}/repos/${remoteRepo}/contents/${path}` : `${GITHUB_API}/repos/${remoteRepo}/contents`
   const res = await fetch(url, { headers: remoteAuthHeaders(), cache: 'no-store' })
   return parseContentsList(res, path)
 }

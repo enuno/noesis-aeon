@@ -1,14 +1,15 @@
 ---
-type: Skill
 name: strategy-builder
-category: core
 description: Draft STRATEGY.md from a goal - read the operator's brief (goal, repo, links) plus the repo README and memory, then write a tight north-star/priorities/audience/constraints strategy.
-schedule: "workflow_dispatch"
-commits: true
-permissions:
-  - contents:write
-var: ""
-tags: [meta, productivity]
+metadata:
+  category: core
+  commits: true
+  permissions:
+    - contents:write
+  var: ""
+  tags:
+    - meta
+    - productivity
 ---
 
 > **${var}** — a brief. Two accepted shapes:
@@ -115,10 +116,10 @@ NOTIF_EOF
 
 ### 6. Log
 
-Append to `memory/logs/${today}.md`:
+Append to `memory/logs/${today}.md` under a `### strategy-builder` heading (the health loop keys entries by slug):
 
 ```markdown
-## Strategy Builder
+### strategy-builder
 - **North-star:** ${one line}
 - **Priorities:** ${count}
 - **Sources used:** goal | repo=${repo} | links=${count} | repo-context

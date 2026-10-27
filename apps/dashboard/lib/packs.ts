@@ -1,6 +1,6 @@
 import { getFileContent, getDirectory } from './github'
 import { parseConfig } from './config'
-import type { Pack, PackSkill, CommunityPack } from './types'
+import type { Pack, PackSkill, CommunityPack, PacksResponse } from './types'
 
 interface PacksManifest {
   packs?: Array<{
@@ -21,12 +21,13 @@ interface CommunityManifest {
 // The first-party pack catalog (packs.json) joined with live enabled state from
 // aeon.yml, plus the community registry (skill-packs.json) joined with on-disk
 // installed state. Both manifests are optional; a missing file yields an empty
-// list. Shared by GET /api/packs and `aeon packs ls`.
-export async function getPacks(): Promise<{ firstParty: Pack[]; community: CommunityPack[] }> {
-  const config = await getFileContent('aeon.yml')
-    .then(r => parseConfig(r.content))
-    .catch(() => null)
-  const enabledOf = (slug: string) => config?.skills[slug]?.enabled ?? false
+// list. aeon.yml is NOT optional — an unreadable config throws so the caller
+// surfaces the failure instead of rendering every skill as disabled.
+// Shared by GET /api/packs and `aeon packs ls`.
+export async function getPacks(): Promise<PacksResponse> {
+  const config = parseConfig((await getFileContent('aeon.yml')).content)
+  // `?.` still needed: a pack skill may simply not be listed in aeon.yml.
+  const enabledOf = (slug: string) => config.skills[slug]?.enabled ?? false
 
   let firstParty: Pack[] = []
   try {
@@ -52,20 +53,22 @@ export async function getPacks(): Promise<{ firstParty: Pack[]; community: Commu
         enabled: skills.filter(s => s.enabled).length,
       }
     })
-  } catch { /* packs.json optional */ }
+  } catch {
+    /* packs.json optional */
+  }
 
   let community: CommunityPack[] = []
   try {
     const { content } = await getFileContent('catalog/skill-packs.json')
     const manifest = JSON.parse(content) as CommunityManifest
-    const installed = new Set(
-      (await getDirectory('skills')).filter(d => d.type === 'dir').map(d => d.name),
-    )
+    const installed = new Set((await getDirectory('skills')).filter(d => d.type === 'dir').map(d => d.name))
     community = (manifest.packs ?? []).map(p => ({
       ...p,
       installedCount: (p.skills ?? []).filter(s => installed.has(s)).length,
     }))
-  } catch { /* skill-packs.json optional */ }
+  } catch {
+    /* skill-packs.json optional */
+  }
 
   return { firstParty, community }
 }

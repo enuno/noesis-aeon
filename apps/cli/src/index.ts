@@ -13,10 +13,16 @@ import { soulCommand } from './commands/soul.ts'
 import { packsCommand } from './commands/packs.ts'
 import { mcpCommand } from './commands/mcp.ts'
 import { telegramCommand } from './commands/telegram.ts'
+import { initCommand } from './commands/init.ts'
 
 const USAGE = `${c.bold('aeon')} — command-line control of this Aeon repo
 
 Usage: aeon <command> [subcommand] [options]
+
+Setup:
+  init                Create your instance + connect GitHub, a model and Telegram
+                      (interactive, safe to re-run; see \`aeon init --help\`)
+                      No terminal? Set up in the browser: https://www.aeon.fun/connect
 
 Read:
   skills ls|<name>    Skill roster + per-skill detail
@@ -31,7 +37,7 @@ Read:
 Write:
   skills enable|disable|schedule|set|rm|run <name>
   secrets set|rm <NAME>          config set model|harness|gateway <v>
-  auth --oauth|--key <k>         sync [--status]
+  auth --harness <h>|--github|--key <k>  sync [--status]
   strategy set|build             soul build
   packs install <owner/repo>     mcp add|rm            telegram register
 
@@ -40,7 +46,9 @@ Global options:
   --dry-run    Preview a mutating command without writing / dispatching / pushing
   -h, --help   Help (works per-command too, e.g. \`aeon skills --help\`)`
 
-const COMMANDS: Record<string, (argv: string[]) => void | Promise<void>> = {
+// Partial: `cmd` is argv, so the miss is real — without it the `if (!handler)`
+// guard below is dead code the compiler believes can never fire.
+const COMMANDS: Partial<Record<string, (argv: string[]) => void | Promise<void>>> = {
   skills: skillsCommand,
   runs: runsCommand,
   secrets: secretsCommand,
@@ -53,14 +61,21 @@ const COMMANDS: Record<string, (argv: string[]) => void | Promise<void>> = {
   packs: packsCommand,
   mcp: mcpCommand,
   telegram: telegramCommand,
+  init: initCommand,
 }
 
 async function main() {
   // Pull the global flags out of argv wherever they appear, so commands only see
   // their own args.
   let argv = process.argv.slice(2)
-  if (argv.includes('--json')) { setJsonMode(true); argv = argv.filter(a => a !== '--json') }
-  if (argv.includes('--dry-run')) { setDryRun(true); argv = argv.filter(a => a !== '--dry-run') }
+  if (argv.includes('--json')) {
+    setJsonMode(true)
+    argv = argv.filter(a => a !== '--json')
+  }
+  if (argv.includes('--dry-run')) {
+    setDryRun(true)
+    argv = argv.filter(a => a !== '--dry-run')
+  }
 
   const cmd = argv[0]
   if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h') {

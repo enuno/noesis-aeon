@@ -10,7 +10,8 @@ bad()  { echo "FAIL - $1"; fail=1; }
 # Fixtures live under real skills/ so resolve_mode finds them; use temp names + cleanup.
 mk() { mkdir -p "skills/$1"; printf '%s\n' "---" "name: $1" "${2:-}" "---" "body" > "skills/$1/SKILL.md"; }
 RO="zzz-test-readonly-$$"; WR="zzz-test-write-$$"; NM="zzz-test-nomode-$$"; BAD="zzz-test-bad-$$"; CMT="zzz-test-comment-$$"
-cleanup() { rm -rf "skills/$RO" "skills/$WR" "skills/$NM" "skills/$BAD" "skills/$CMT"; }
+CRLF="zzz-test-crlf-$$"; NEST="zzz-test-nested-comment-$$"; CASE="zzz-test-case-$$"
+cleanup() { rm -rf "skills/$RO" "skills/$WR" "skills/$NM" "skills/$BAD" "skills/$CMT" "skills/$CRLF" "skills/$NEST" "skills/$CASE"; }
 trap cleanup EXIT
 mk "$RO" "mode: read-only"
 mk "$WR" "mode: write"
@@ -26,6 +27,15 @@ mk "$CMT" "mode: read-only   # with an inline comment and trailing space   "
 [ "$(bash "$M" mode "$BAD")" = "write" ]     && pass "unknown mode falls back to write" || bad "unknown mode falls back to write"
 [ "$(bash "$M" mode "nonexistent-skill-xyz")" = "write" ] && pass "missing skill defaults to write" || bad "missing skill defaults to write"
 
+# frontmatter shapes that must still resolve to the declared mode
+mkdir -p "skills/$CRLF" "skills/$NEST" "skills/$CASE"
+printf -- '---\r\nname: x\r\nmode: read-only\r\n---\r\nbody\r\n' > "skills/$CRLF/SKILL.md"
+printf -- '---\nname: x\nmetadata:\n# a note at column 0\n  mode: read-only\n---\nbody\n' > "skills/$NEST/SKILL.md"
+printf -- '---\nname: x\nmode: Read-Only\n---\nbody\n' > "skills/$CASE/SKILL.md"
+[ "$(bash "$M" mode "$CRLF")" = "read-only" ] && pass "CRLF frontmatter resolves" || bad "CRLF frontmatter resolves"
+[ "$(bash "$M" mode "$NEST")" = "read-only" ] && pass "column-0 comment inside metadata: keeps the nested mode" || bad "column-0 comment inside metadata: keeps the nested mode"
+[ "$(bash "$M" mode "$CASE")" = "read-only" ] && pass "mode value is case-insensitive" || bad "mode value is case-insensitive"
+
 # allowed-tools: write tier has the mutation tools
 WT=$(bash "$M" allowed-tools write)
 echo "$WT" | grep -q "Write" && echo "$WT" | grep -q "Edit" \
@@ -34,6 +44,17 @@ echo "$WT" | grep -q "Write" && echo "$WT" | grep -q "Edit" \
 
 # allowed-tools: read-only tier drops mutation tools but keeps read+notify+curl
 RT=$(bash "$M" allowed-tools read-only)
+# Timeout wrappers are command heads, not covered by Bash(trufflehog:*).
+# Keep these general command runners out of the read-only tier.
+for timer in timeout gtimeout; do
+  echo "$WT" | tr ',' '\n' | grep -qxF "Bash($timer:*)" \
+    && pass "write tier includes $timer wrapper" || bad "write tier missing $timer wrapper"
+  if echo "$RT" | tr ',' '\n' | grep -qxF "Bash($timer:*)"; then
+    bad "read-only tier exposes $timer wrapper"
+  else
+    pass "read-only tier excludes $timer wrapper"
+  fi
+done
 if echo "$RT" | grep -q "Write" || echo "$RT" | grep -q "Edit" \
    || echo "$RT" | grep -q "Bash(git:\*)" || echo "$RT" | grep -q "Bash(gh:\*)"; then
   bad "read-only tier drops Write/Edit/git/gh"
@@ -44,32 +65,40 @@ echo "$RT" | grep -q "Read" && echo "$RT" | grep -q "WebFetch" \
   && echo "$RT" | grep -q "Bash(curl:\*)" && echo "$RT" | grep -q "Bash(./notify:\*)" \
   && pass "read-only tier keeps read/web/curl/notify" || bad "read-only tier keeps read/web/curl/notify"
 
-# grok-args: write tier maps to grok grammar with mutation tools + bypassPermissions
-# (-F fixed-string for the Bash(cmd *) tokens — the literal * is not a regex here)
-GW=$(bash "$M" grok-args write)
-echo "$GW" | grep -qx -- "--permission-mode" && echo "$GW" | grep -qx "bypassPermissions" \
-  && echo "$GW" | grep -qx "Edit" && echo "$GW" | grep -Fqx "Bash(git *)" \
-  && echo "$GW" | grep -Fqx "Bash(gh *)" \
-  && pass "grok write tier: bypassPermissions + Edit/git/gh (space-glob)" || bad "grok write tier: bypassPermissions + Edit/git/gh"
-# never emit --deny (a denied tool can re-trigger the turn-abort bypass removes)
-if echo "$GW" | grep -qx -- "--deny"; then bad "grok args must not emit --deny"; else pass "grok args emit no --deny"; fi
-# grok write must NOT be sandboxed read-only
-if echo "$GW" | grep -qx -- "--sandbox"; then bad "grok write tier must not set --sandbox"; else pass "grok write tier has no --sandbox"; fi
+# allowed-tools: cd is granted in both tiers (a cd-prefixed multi-step Bash
+# call was silently denied in full otherwise, even when every real command
+# after the cd was itself allowlisted — see the comment in skill_mode.sh).
+echo "$WT" | grep -q "Bash(cd:\*)" && pass "write tier includes cd" || bad "write tier includes cd"
+echo "$RT" | grep -q "Bash(cd:\*)" && pass "read-only tier includes cd" || bad "read-only tier includes cd"
+echo "$RT" | grep -q "Bash(arc-studio:\*)" && pass "read-only tier includes arc-studio" || bad "read-only tier includes arc-studio"
 
-# grok-args: read-only tier is sandboxed and drops Edit/git/gh
-GR=$(bash "$M" grok-args read-only)
-echo "$GR" | grep -qx -- "--sandbox" && echo "$GR" | grep -qx "read-only" \
-  && pass "grok read-only tier sets --sandbox read-only" || bad "grok read-only tier sets --sandbox read-only"
-if echo "$GR" | grep -qx "Edit" || echo "$GR" | grep -Fqx "Bash(git *)" || echo "$GR" | grep -Fqx "Bash(gh *)"; then
-  bad "grok read-only tier drops Edit/git/gh"
+echo "$WT" | grep -q "Bash(./scripts/vuln-poc-gate.sh:\*)" \
+  && pass "write tier includes the vuln PoC verifier" || bad "write tier missing vuln PoC verifier"
+echo "$WT" | grep -q "Bash(./scripts/feature-open-pr.sh:\*)" \
+  && pass "write tier includes the feature open-PR check" || bad "write tier missing feature open-PR check"
+echo "$RT" | grep -q "feature-open-pr" && bad "read-only tier must not include the feature open-PR check" || pass "read-only tier excludes the feature open-PR check"
+echo "$WT" | grep -q "Bash(./scripts/dev-loop-review.sh:\*)" \
+  && pass "write tier includes the review receipt check" || bad "write tier missing review receipt check"
+
+# grok-args is DELETED and must stay deleted. It emitted grok `--allow` rules that
+# never gated anything (adapters/grok.sh runs --permission-mode bypassPermissions,
+# because a denied tool aborts grok's whole turn) plus grok's own
+# `--sandbox read-only`, which grok 0.2.101 silently ignores. Read-only on grok is
+# the dispatcher's OS sandbox. A resurrected subcommand would re-document a guard
+# that does not exist, so an unknown subcommand must fail loudly, not print flags.
+if bash "$M" grok-args read-only >/dev/null 2>&1; then
+  bad "grok-args should be gone — read-only on grok is the wrapper OS sandbox, not an allowlist"
 else
-  pass "grok read-only tier drops Edit/git/gh"
+  pass "grok-args rejected (removed with the run-grok.sh run path)"
 fi
-echo "$GR" | grep -qx "Read" && echo "$GR" | grep -Fqx "Bash(curl *)" && echo "$GR" | grep -Fqx "Bash(./notify *)" \
-  && pass "grok read-only tier keeps Read/curl/notify" || bad "grok read-only tier keeps Read/curl/notify"
-# unknown mode → write tier (no sandbox)
-GB=$(bash "$M" grok-args banana)
-if echo "$GB" | grep -qx -- "--sandbox"; then bad "grok unknown mode falls back to write (no sandbox)"; else pass "grok unknown mode falls back to write"; fi
+# (capture first, then grep: `set -o pipefail` above would otherwise surface the
+# script's own exit 2 as the pipeline's status and mask a passing grep)
+USAGE=$(bash "$M" grok-args read-only 2>&1 >/dev/null)
+case "$USAGE" in
+  *usage:*grok-args*) bad "usage line still advertises grok-args" ;;
+  *usage:*)           pass "unknown subcommand prints usage on stderr, without grok-args" ;;
+  *)                  bad "unknown subcommand should print usage (got: $USAGE)" ;;
+esac
 
 # grok-run-env: frontmatter run-knobs → export GROK_* lines
 FX="zzz-test-fx-$$"
@@ -88,6 +117,40 @@ GE2=$(bash "$M" grok-run-env "$WR")
 # eval-safety: output is valid shell that sets exactly those vars
 ( eval "$GE"; [ "$GROK_EFFORT" = high ] && [ "$GROK_MAX_TURNS" = 60 ]; ) \
   && pass "grok-run-env output is eval-safe" || bad "grok-run-env output not eval-safe"
+
+# vuln-scanner shadow/compare selector: read-only even when the var is padded.
+# The model reads " shadow" or "shadow\r\n" as a shadow run, so the tier must
+# agree (fail closed) instead of an exact match falling through to write.
+for sel in shadow compare shadow:owner/repo compare:x " shadow" $'shadow\n' $'shadow\r\n' \
+  $'\tcompare:x' $'  compare:owner/repo \n' "shadow owner/repo" $'shadow\towner/repo'; do
+  label=$(printf '%q' "$sel")
+  [ "$(bash "$M" is-shadow vuln-scanner "$sel")" = "true" ] \
+    && pass "is-shadow true for $label" || bad "is-shadow should be true for $label"
+  [ "$(bash "$M" mode vuln-scanner "$sel")" = "read-only" ] \
+    && pass "vuln-scanner var $label resolves read-only" || bad "vuln-scanner var $label should resolve read-only"
+done
+for sel in "" owner/repo riva:owner/repo shadowy " shadowy" scan:owner/repo owner/shadow; do
+  label=$(printf '%q' "$sel")
+  [ "$(bash "$M" is-shadow vuln-scanner "$sel")" = "false" ] \
+    && pass "is-shadow false for $label" || bad "is-shadow should be false for $label"
+done
+[ "$(bash "$M" is-shadow "$WR" shadow)" = "false" ] \
+  && pass "shadow selector only applies to vuln-scanner" || bad "shadow selector leaked to another skill"
+
+# run-notes: shell-shape note on both tiers; with a skill, name which of its
+# declared keys are set (from the env) and which are not, never their values.
+KEYS="zzz-test-keys-$$"
+mk "$KEYS" "requires: [ZZZ_SET_KEY, ZZZ_UNSET_KEY?]"
+for tier in write read-only; do
+  bash "$M" run-notes "$tier" | grep -q "Each Bash call must be one allowed command" \
+    && pass "run-notes $tier: shell-shape note" || bad "run-notes $tier: shell-shape note"
+done
+N=$(ZZZ_SET_KEY=s3cr3t-value bash "$M" run-notes write "$KEYS")
+echo "$N" | grep -q "Keys set for this run: ZZZ_SET_KEY\." && pass "run-notes: present key named" || bad "run-notes: present key named"
+echo "$N" | grep -q "Keys NOT set for this run: ZZZ_UNSET_KEY\." && pass "run-notes: missing key named" || bad "run-notes: missing key named"
+echo "$N" | grep -q "s3cr3t-value" && bad "run-notes leaked a key value" || pass "run-notes never prints key values"
+bash "$M" run-notes write | grep -q "Keys" && bad "run-notes without a skill should not list keys" || pass "run-notes without a skill lists no keys"
+rm -rf "skills/$KEYS"
 
 echo "---"
 [ "$fail" = "0" ] && echo "ALL PASS" || echo "SOME FAILED"

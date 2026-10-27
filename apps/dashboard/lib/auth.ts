@@ -1,5 +1,5 @@
 import { execFileSync, execSync } from 'child_process'
-import { ghArgsRepo } from './gh'
+import { ghArgsRepo, ghSecretSet } from './gh'
 import { normalizeAuthConfig } from './auth-provider'
 import { syncGatewayProvider } from './gateway'
 
@@ -31,16 +31,24 @@ export async function configureAuth(
   }
 
   if (config.key) {
-    execFileSync('gh', ['secret', 'set', config.secretName, ...ghArgsRepo()], {
-      input: config.key,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    })
+    ghSecretSet(config.secretName, config.key)
     await syncGatewayProvider()
-    return { ok: true, method: config.method, secret: config.secretName, baseUrl: Boolean(config.baseUrl), gateway: config.gateway }
+    return {
+      ok: true,
+      method: config.method,
+      secret: config.secretName,
+      baseUrl: Boolean(config.baseUrl),
+      gateway: config.gateway,
+    }
   }
 
   // No key provided → mint an OAuth token locally via the Claude CLI.
-  const output = execSync('claude setup-token', { stdio: 'pipe', timeout: 60000 }).toString()
+  // 5-minute timeout: `claude setup-token` opens a browser and blocks on the
+  // sign-in + approval. A first-time sign-in routinely takes longer than a
+  // minute, and at the old 60s cap execSync SIGKILLed the flow mid-approval, so
+  // the button "failed silently" with no token saved. Matches the device-login
+  // wait in lib/harness-auth-server.ts.
+  const output = execSync('claude setup-token', { stdio: 'pipe', timeout: 300000 }).toString()
 
   const tokenBlock = output.slice(output.indexOf('sk-ant-oat'))
   if (!tokenBlock.startsWith('sk-ant-oat')) {
@@ -58,10 +66,7 @@ export async function configureAuth(
     throw new Error('Could not extract a valid OAuth token. Paste your API key manually instead.')
   }
 
-  execFileSync('gh', ['secret', 'set', 'CLAUDE_CODE_OAUTH_TOKEN', ...ghArgsRepo()], {
-    input: token,
-    stdio: ['pipe', 'pipe', 'pipe'],
-  })
+  ghSecretSet('CLAUDE_CODE_OAUTH_TOKEN', token)
   await syncGatewayProvider()
-  return { ok: true, method: 'oauth' }
+  return { ok: true, method: 'oauth', secret: 'CLAUDE_CODE_OAUTH_TOKEN' }
 }

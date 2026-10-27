@@ -41,6 +41,37 @@ MANIFEST=/tmp/vuln-scan/prefetch.txt
 log()    { echo "stage-vuln-scanner: $*"; }
 record() { echo "$1=$2" >> "$MANIFEST"; }   # tool=installed|fail|skipped
 
+# Keep machine-readable evidence that the agent actually invoked a scanner. The
+# post-run workflow check reads this file; model prose is not execution evidence.
+EXEC_LOG=/tmp/vuln-scan/executions.log
+: > "$EXEC_LOG"
+POC_EXEC_LOG=/tmp/vuln-scan/poc-executions.log
+: > "$POC_EXEC_LOG"
+
+instrument() { # command name, real executable
+  local name="$1" real="$2" wrapper="$BIN/$1"
+  [ -x "$real" ] || return 0
+  mv "$real" "$BIN/.${name}.real" 2>/dev/null || return 0
+  rm -f "$wrapper"   # drop any dangling symlink so the heredoc writes a plain file into $BIN
+  cat > "$wrapper" <<EOF
+#!/usr/bin/env bash
+printf '%s %s\\n' '$name' "\$*" >> '$EXEC_LOG'
+exec '$BIN/.${name}.real' "\$@"
+EOF
+  chmod +x "$wrapper"
+}
+
+instrument_redacted() { # command name, real executable, fixed evidence label
+  local name="$1" real="$2" label="$3" wrapper="$BIN/$1"
+  [ -x "$real" ] || return 0
+  cat > "$wrapper" <<EOF
+#!/usr/bin/env bash
+printf '%s %s\n' '$name' '$label' >> '$EXEC_LOG'
+exec '$real' "\$@"
+EOF
+  chmod +x "$wrapper"
+}
+
 pip_install() { # package
   pip install --quiet "$1" 2>/dev/null \
     || pip3 install --quiet "$1" 2>/dev/null \
@@ -96,6 +127,40 @@ elif pip_install slither-analyzer && command -v slither >/dev/null 2>&1; then
 else
   log "slither not installed (optional — only used for Solidity repos)"
   record slither skipped
+fi
+
+# --- cargo-fuzz (dynamic testing, A3.5) — only useful when the cloned repo
+#     already ships its own fuzz/fuzz_targets, but we don't know the target yet
+#     at staging time (Arm A picks it after this step runs). Stage it always,
+#     same tolerance as slither above: unconditional install, conditional use.
+#     GHA hosted runners already have stable Rust; this only adds nightly
+#     (cargo-fuzz needs it for sanitizer support) + the cargo-fuzz binary.
+if command -v cargo-fuzz >/dev/null 2>&1; then
+  log "cargo-fuzz already present"
+  record cargo-fuzz installed
+elif rustup toolchain install nightly --profile minimal >/dev/null 2>&1 \
+     && cargo install cargo-fuzz --locked >/dev/null 2>&1 \
+     && command -v cargo-fuzz >/dev/null 2>&1; then
+  log "cargo-fuzz installed ($(cargo-fuzz --version 2>/dev/null | head -1))"
+  record cargo-fuzz installed
+else
+  log "cargo-fuzz not installed (optional — only used for repos shipping fuzz/fuzz_targets)"
+  record cargo-fuzz skipped
+fi
+
+# Wrap staged binaries after installation so every actual invocation is recorded.
+instrument semgrep "$(command -v semgrep 2>/dev/null || true)"
+instrument trufflehog "$BIN/trufflehog"
+instrument osv-scanner "$BIN/osv-scanner"
+instrument slither "$(command -v slither 2>/dev/null || true)"
+instrument cargo-fuzz "$(command -v cargo-fuzz 2>/dev/null || true)"
+# Keep private finding paths, test names, and fork arguments out of the public
+# workflow evidence log. The gate's redacted result proves whether the PoC ran.
+if command -v forge >/dev/null 2>&1; then
+  instrument_redacted forge "$(command -v forge)" '[redacted]'
+  record forge installed
+else
+  record forge fail
 fi
 
 log "manifest (/tmp/vuln-scan/prefetch.txt):"

@@ -1,16 +1,53 @@
 import { GATEWAY_SLUGS, type GatewaySlug } from './gateway-registry'
 
-export interface SkillKeyRef { key: string; optional: boolean }
-export interface SkillMcpRef { slug: string; optional: boolean }
-export interface Skill { name: string; description: string; tags: string[]; category: string; pack: string; packName: string; enabled: boolean; schedule: string; var: string; model: string; harness: string; requires: SkillKeyRef[]; mcp: SkillMcpRef[] }
-export interface Run { id: number; workflow: string; status: string; conclusion: string | null; created_at: string; url: string }
+export interface SkillKeyRef {
+  key: string
+  optional: boolean
+}
+export interface SkillMcpRef {
+  slug: string
+  optional: boolean
+}
+export interface Skill {
+  name: string
+  description: string
+  tags: string[]
+  category: string
+  pack: string
+  packName: string
+  enabled: boolean
+  schedule: string
+  var: string
+  varHint: string
+  model: string
+  harness: string
+  requires: SkillKeyRef[]
+  mcp: SkillMcpRef[]
+}
+export interface Run {
+  id: number
+  workflow: string
+  status: string
+  conclusion: string | null
+  created_at: string
+  url: string
+}
 // Result of a Telegram setup probe (webhook registration / chat-id lookup), shown inline in the Telegram credential helpers.
-export interface TelegramStatus { ok: boolean; msg: string }
+export interface TelegramStatus {
+  ok: boolean
+  msg: string
+}
 
 // --- Skill packs ---
 // A skill inside a first-party pack, joined with its live enabled state from
 // aeon.yml. `slug` is the skill dir name; `name` is the display name.
-export interface PackSkill { slug: string; name: string; description: string; category: string; enabled: boolean }
+export interface PackSkill {
+  slug: string
+  name: string
+  description: string
+  category: string
+  enabled: boolean
+}
 // First-party pack (from packs.json) with live counts computed by /api/packs.
 export interface Pack {
   key: string
@@ -39,9 +76,24 @@ export interface CommunityPack {
   capabilities?: string[]
   installedCount: number
 }
-export interface Secret { name: string; group: string; description: string; isSet: boolean; either?: string }
-export interface SkillOutput { filename: string; skill: string; timestamp: string; spec: { root: string; state?: Record<string, unknown>; elements: Record<string, SpecElement> } }
-export interface SpecElement { type: string; props?: Record<string, unknown>; children?: string[] }
+export interface Secret {
+  name: string
+  group: string
+  description: string
+  isSet: boolean
+  either?: string
+}
+export interface SkillOutput {
+  filename: string
+  skill: string
+  timestamp: string
+  spec: { root: string; state?: Record<string, unknown>; elements: Record<string, SpecElement> }
+}
+export interface SpecElement {
+  type: string
+  props?: Record<string, unknown>
+  children?: string[]
+}
 
 // Shape of `gh run list`/`gh run view --json` output. Routes Pick<> the columns they request.
 export interface GhRunJson {
@@ -65,16 +117,35 @@ export type GatewayProvider = 'auto' | 'direct' | GatewaySlug
 export const GATEWAY_PROVIDERS: GatewayProvider[] = ['auto', 'direct', ...GATEWAY_SLUGS]
 
 // Which agent CLI runs skills. `claude` = Claude Code (default, uses the gateway
-// above); `grok` = Grok Build CLI (own auth, own models). See scripts/run-grok.sh.
-export type Harness = 'claude' | 'grok'
-export const HARNESSES: Harness[] = ['claude', 'grok']
+// above); `grok` = Grok Build CLI (own auth, own models). codex/pi/vibe/kimi run
+// through harness-adapter's `run-harness` on one OPENROUTER_API_KEY (see
+// harness-adapter/docs/aeon-integration.md and scripts/run-grok.sh for the seam).
+// `fx` also runs through run-harness but has NO OpenRouter fallback (Vercel AI
+// Gateway / VERCEL_OIDC_TOKEN only) — see lib/harness-auth.ts's fx entry and
+// resolve-harness.sh's fx case.
+export type Harness = 'claude' | 'grok' | 'codex' | 'fx' | 'pi' | 'vibe' | 'kimi' | 'cursor' | 'hermes'
+export const HARNESSES: Harness[] = ['claude', 'grok', 'codex', 'fx', 'pi', 'vibe', 'kimi', 'cursor', 'hermes']
 
-export interface UploadFile { path: string; content: string }
+export interface UploadFile {
+  path: string
+  content: string
+}
+
+// The dashboard's top-level view, shared by the page shell, the top bar and the sidebar.
+export type DashboardView = 'hq' | 'packs' | 'secrets' | 'strategy' | 'mcp' | 'soul'
 
 // Client→server build briefs. The panels collect them; the build routes accept
 // them as Partial (every field is untrusted/optional on the wire).
-export interface SoulSources { handle: string; name: string; links: string }
-export interface StrategySources { goal: string; repo: string; links: string }
+export interface SoulSources {
+  handle: string
+  name: string
+  links: string
+}
+export interface StrategySources {
+  goal: string
+  repo: string
+  links: string
+}
 
 // `.mcp.json` server map. A server's shape varies by transport: http (`url`,
 // optional `headers`) or stdio (`command`, `args`, `env`). The known fields are
@@ -96,12 +167,10 @@ export interface SkillMetrics {
   total: number
   success: number
   failure: number
-  cancelled: number
   inProgress: number
-  successRate: number
+  successRate: number // over completed runs only
   lastRun: string | null
   lastConclusion: string | null
-  avgDurationMin: number | null
   streak: number // positive = consecutive successes, negative = consecutive failures
 }
 
@@ -112,11 +181,7 @@ export interface Insight {
 
 interface AnalyticsSummary {
   totalRuns: number
-  totalSuccess: number
-  totalFailure: number
   overallSuccessRate: number
-  uniqueSkills: number
-  periodDays: number
 }
 
 export interface AnalyticsData {
@@ -197,9 +262,27 @@ export interface SyncResult {
   syncError?: string
 }
 
+// POST /api/mcp-auth - the OAuth connect result. `server` is the .mcp.json
+// descriptor the panel adds through its normal save path; `warning` is set when
+// the grant carried no refresh token.
+export interface McpAuthResponse {
+  ok?: boolean
+  slug?: string
+  server?: McpServer
+  durable?: boolean
+  warning?: string
+  error?: string
+}
+
 // GET /api/soul/examples - the gallery people available to install.
-export interface SoulExample { key: string; label: string; blurb: string }
-export interface SoulExamplesResponse { examples: SoulExample[] }
+export interface SoulExample {
+  key: string
+  label: string
+  blurb: string
+}
+export interface SoulExamplesResponse {
+  examples: SoulExample[]
+}
 
 // POST /api/soul/examples - syncResult plus the installed file contents on
 // success, or { error } on the not-found / failure paths.

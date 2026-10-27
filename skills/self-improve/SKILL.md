@@ -1,10 +1,11 @@
 ---
-type: Skill
 name: self-improve
-category: evolution
 description: Improve the agent itself, or audit its recent performance - better skills, prompts, workflows, and config, plus a quality/reliability/memory-hygiene review of what it did and what failed
-var: ""
-tags: [meta]
+metadata:
+  category: evolution
+  var: ""
+  tags:
+    - meta
 ---
 > **${var}** — Mode selector, optionally with a focus area, as `mode` or `mode:focus`.
 > - **empty** or **`improve`** → improve mode: find and fix the highest-impact issue from recent logs, then propose + apply the fix via PR (default).
@@ -71,6 +72,12 @@ Improve the agent itself based on recent performance. **ONE change per run.**
    - Add new features (that's create-skill's job)
    - Change the core architecture
    - Modify secrets or environment variables
+
+4b. **Dry-run gate.** Before opening the PR, execute the improved skill once with **synthetic** secrets, so a regression never reaches production having run only with real credentials. Let `$skill` be the skill you edited:
+   ```bash
+   DRYRUN_VERDICT="output/.dry-run/$skill.json" bash scripts/dry-run.sh run "$skill" || true
+   ```
+   Read `output/.dry-run/$skill.json`: `passed: true` (or `skipped: true`, when the `SKILL_DRYRUN` repo variable is `0`) continues. `passed: false` means **revert the edit and stop** (log `self-improve: dry-run gate failed for $skill` with the verdict `reasons[]`; do not open the PR). Put the verdict under a `## Dry-run` section in the PR body. The gate is structural (exit, output, declared `mode`, declared `requires:`); no real credential enters the run.
 
 5. **Create a branch and PR:**
    ```bash

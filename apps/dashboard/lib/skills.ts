@@ -31,10 +31,7 @@ export function getRepoSlug(): string {
 // aeon.yml, its catalog category, and its pack. Shared by GET /api/skills and
 // the `aeon skills` CLI command so both present identical data.
 export async function getSkills(): Promise<SkillsData> {
-  const [configResult, skillDirs] = await Promise.all([
-    getFileContent('aeon.yml'),
-    getDirectory('skills'),
-  ])
+  const [configResult, skillDirs] = await Promise.all([getFileContent('aeon.yml'), getDirectory('skills')])
   const config = parseConfig(configResult.content)
   const dirNames = skillDirs.filter(d => d.type === 'dir').map(d => d.name)
 
@@ -45,7 +42,9 @@ export async function getSkills(): Promise<SkillsData> {
     const { content: catalogRaw } = await getFileContent('catalog/skills.json')
     const catalog = JSON.parse(catalogRaw) as { skills?: Array<{ slug: string; category: string }> }
     for (const s of catalog.skills ?? []) categoryBySlug[s.slug] = s.category
-  } catch { /* catalog optional - categories default to meta */ }
+  } catch {
+    /* catalog optional - categories default to meta */
+  }
 
   // Canonical slug → pack (key + display name) map from packs.json. The name
   // lets the roster label community packs by their real name. Falls back to 'lab'.
@@ -53,22 +52,27 @@ export async function getSkills(): Promise<SkillsData> {
   const packNameBySlug: Record<string, string> = {}
   try {
     const { content: packsRaw } = await getFileContent('catalog/packs.json')
-    const packs = JSON.parse(packsRaw) as { packs?: Array<{ key: string; name?: string; skills?: Array<{ slug: string }> }> }
-    for (const p of packs.packs ?? []) for (const s of p.skills ?? []) {
-      packBySlug[s.slug] = p.key
-      packNameBySlug[s.slug] = p.name ?? p.key
+    const packs = JSON.parse(packsRaw) as {
+      packs?: Array<{ key: string; name?: string; skills?: Array<{ slug: string }> }>
     }
-  } catch { /* packs.json optional - packs default to lab */ }
+    for (const p of packs.packs ?? [])
+      for (const s of p.skills ?? []) {
+        packBySlug[s.slug] = p.key
+        packNameBySlug[s.slug] = p.name ?? p.key
+      }
+  } catch {
+    /* packs.json optional - packs default to lab */
+  }
 
   const meta = await Promise.all(
-    dirNames.map(async (name) => {
+    dirNames.map(async name => {
       try {
         const { content } = await getFileContent(`skills/${name}/SKILL.md`)
-        const { description, tags, requires, mcp } = parseFrontmatter(content)
-        return { name, description, tags, requires, mcp, found: true }
+        const { description, varHint, tags, requires, mcp } = parseFrontmatter(content)
+        return { name, description, varHint, tags, requires, mcp, found: true }
       } catch {
         // No SKILL.md → this is a support/data dir (e.g. skills/security/), not a skill.
-        return { name, description: '', tags: [] as string[], requires: [], mcp: [], found: false }
+        return { name, description: '', varHint: '', tags: [] as string[], requires: [], mcp: [], found: false }
       }
     }),
   )
@@ -78,6 +82,7 @@ export async function getSkills(): Promise<SkillsData> {
     .map(m => ({
       name: m.name,
       description: m.description,
+      varHint: m.varHint,
       tags: m.tags,
       requires: m.requires,
       mcp: m.mcp,

@@ -6,7 +6,9 @@
   "description": "Cloudflare Worker that relays Telegram messages to an Aeon fork via GitHub repository_dispatch for ~1s response time.",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "lint": "eslint .",
+    "test": "node test/replay-guard.test.mjs && node test/otel-redact.test.mjs"
   },
   "cloudflare": {
     "bindings": {
@@ -28,6 +30,17 @@
     }
   },
   "devDependencies": {
-    "wrangler": "4.110.0"
+    "eslint": "^9.39.5",
+    "globals": "^15.15.0",
+    "wrangler": "4.142.0"
+  },
+  "dependencies": {
+    "@microlabs/otel-cf-workers": "^1.0.0-rc.52",
+    "@opentelemetry/api": "^1.9.1"
+  },
+  "overrides": {
+    "undici": "^7.29.0",
+    "@opentelemetry/core": ">=2.8.0",
+    "sharp": "^0.35.4"
   }
 }

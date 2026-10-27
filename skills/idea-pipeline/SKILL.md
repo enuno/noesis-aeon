@@ -1,24 +1,36 @@
 ---
-type: Skill
 name: idea-pipeline
-category: productivity
 description: Execution-gap audit - cross-references the startup idea backlog against shipped skills, prototypes, and cross-repo PRs, surfacing the top 3 ideas to build next by narrative and operator fit.
-var: ""
-tags: [meta, creative]
+metadata:
+  category: productivity
+  var: ""
+  tags:
+    - meta
+    - creative
 ---
-> **${var}** — Optional theme filter (e.g. "crypto", "AI agents", "consumer"). If empty, scans all ideas. A `pick:<id|name>` value (from the "build next?" force-reply — e.g. `pick:2` or `pick:Onchain reputation`) instead marks that idea as chosen-to-build in the backlog and ends, skipping the audit — see step 0.
+> **${var}** — Optional theme filter (e.g. "crypto", "AI agents", "consumer"). If empty, scans all ideas. A `pick:<id|name>` value (from the "build next?" force-reply — e.g. `pick:2` or `pick:Onchain reputation`) instead marks that idea as chosen-to-build in the backlog and ends, skipping the audit — see step 0. `offer:<owner/repo or issue-url>` directly offers a confirmed owned target through the same Telegram reply boundary, also ending before the audit.
 
 Today is ${today}. Read `memory/MEMORY.md` before starting. If `soul/SOUL.md` + `soul/STYLE.md` exist and are populated, read them to ground "operator fit" scoring; otherwise score on the idea's general buildability and timing alone.
 
 ## Why this skill exists
 
-`idea-validator` evaluates ideas. Nothing tracks execution. Backlogs of dozens of ideas accumulate — some validated, most unscreened — with zero visibility into which ones have been acted on vs which are rotting. This skill gives that view: pipeline size, execution rate, and the 3 ideas closest to being buildable right now.
+`idea-forge validate` evaluates ideas. Nothing tracks execution. Backlogs of dozens of ideas accumulate — some validated, most unscreened — with zero visibility into which ones have been acted on vs which are rotting. This skill gives that view: pipeline size, execution rate, and the 3 ideas closest to being buildable right now.
 
 ## Steps
 
-### 0. Force-reply interception — `pick:<idea>` (run FIRST, before anything else)
+### 0. Force-reply interception — `pick:<idea>` / `offer:<target>` (run FIRST, before anything else)
 
-Before any other work, inspect `${var}`. If it **starts with `pick:`**, this run is the operator answering the "which idea to build next?" force-reply — do **not** run the normal audit. Handle it and end:
+If `${var}` starts with `offer:`, strip and trim the remainder. Accept only `owner/repo` or `https://github.com/owner/repo/issues/N`, normalize it to `owner/repo`, and require `gh api "repos/$repo" --jq '.permissions.push // false'` to return `true`. Invalid, inaccessible, or API-failed targets get a plain rejection notification and end without a force reply. For a confirmed target, execute this exact command with Bash. Describing or printing the command is not delivery:
+
+```bash
+./notify "Which owned repository or issue should Aeon Engineer use? Reply with ${target}." \
+  --force-reply --placeholder "${target}" \
+  --context "dev-loop::ship"
+```
+
+After the command exits zero, require at least one non-empty JSON payload under `${AEON_PENDING_DIR}/notify-queue/` **and** that payload's `.reply_markup.force_reply == true`. A queued payload alone isn't enough — `notify.sh` queues one even when the inbound Messages workflow is disabled, but in that case sends the prompt as plain text (`reply_markup:null`) with no reply routing, so the operator's answer would never come back to this skill. If the command fails, the payload is absent, or `force_reply` isn't `true`, end with `FORCE_REPLY_MISSING: dev-loop::ship target=<target>` and do not claim the prompt was offered. Only after both checks pass, log `FORCE_REPLY_OFFERED: dev-loop::ship target=<target>` under `### idea-pipeline`, then end. This is an explicit operator-invoked producer path and still does not dispatch the chain until the operator replies.
+
+Otherwise, if `${var}` starts with `pick:`, this run is the operator answering the "which idea to build next?" force-reply — do **not** run the normal audit. Handle it and end:
 
 1. Strip the prefix: `sel="${var#pick:}"`, then trim surrounding whitespace. The remainder may contain colons/spaces — keep them.
 2. If `sel` is empty, send a plain re-ask (no force-reply) and end: `./notify "Which idea should I mark as next to build? Reply with its name or backlog number."`
@@ -28,9 +40,10 @@ Before any other work, inspect `${var}`. If it **starts with `pick:`**, this run
    - **By number:** if `sel` is a bare integer N and no name matches, take the Nth data row (1-based, in file order).
    - If nothing matches, or two rows tie with no clear winner, send a plain re-ask listing 3–5 candidate names and end: `./notify "Couldn't find an idea matching \"<sel>\". Reply with the exact name or backlog number. Candidates: <name1>, <name2>, <name3>."`
 5. **Mark it chosen-to-build** — the shared marking convention (identical in idea-forge): append ` ✓ selected ${today}` to the end of that row's `name` cell, keeping the table pipes intact. If the cell already carries a `✓ selected` marker, leave it (idempotent) — it's already queued.
-6. Confirm with a short `./notify` (keep it clean — no `test`/`trace`/`ping`/`debug` substrings): `./notify "Marked \"<idea name>\" as next to build — flagged in the backlog. Run /feature or /deploy-prototype on it when you're ready."` Do not auto-dispatch any skill — marking chosen is the safe action.
-7. Log to `memory/logs/${today}.md` under a `## Idea Pipeline` heading: `- IDEA_PIPELINE_PICK: marked "<idea name>" as chosen-to-build (from a pick: reply)`.
-8. **End the run.** Do not proceed to step 1 or run the audit.
+6. **Do not try to infer a GitHub target from the row.** The backlog's row schema (columns `| date | name | one-liner | fit | T+F+E |`) never carries a repo or issue reference, so a per-row target lookup here would never match a real row. `offer:` (step 0) is the only path from a marked idea to a dev-loop dispatch — explicit and push-permission-gated on purpose.
+7. Confirm with a short `./notify` (keep it clean — no `test`/`trace`/`ping`/`debug` substrings): `./notify "Marked \"<idea name>\" as next to build — flagged in the backlog. Run /feature or /deploy-prototype on it when you're ready, or reply with: offer:<owner/repo> to have Aeon Engineer start on it directly."` Do not auto-dispatch any skill — marking chosen is the safe action.
+8. Log to `memory/logs/${today}.md` under a `### idea-pipeline` heading: `- IDEA_PIPELINE_PICK: marked "<idea name>" as chosen-to-build (from a pick: reply)`.
+9. **End the run.** Do not proceed to step 1 or run the audit.
 
 ### 1. Load the idea backlog
 
@@ -79,11 +92,11 @@ Read `memory/topics/market-context.md` if present for current narrative keywords
 
 Read recent logs for any narrative signals (last 3 days).
 
-Compile a list of 8–12 active narrative keywords (e.g. "agent payments", "RWA", "prediction markets", "privacy coins"). If no market-context source exists, derive keywords from recent `digest`, `hacker-news`, or `github-trending` outputs.
+Compile a list of 8–12 active narrative keywords (e.g. "agent payments", "RWA", "prediction markets", "privacy coins"). If no market-context source exists, derive keywords from recent `digest`, `narrative-tracker`, or `github-trending` outputs.
 
 ### 5b. Load builder-ecosystem signal
 
-Read `memory/topics/ecosystem.md` if it exists (written by `builder-map`). This is the second-stream feed — "who's adopting the watched stack" becomes idea fodder.
+Read `memory/topics/ecosystem.md` if it exists (written by the retired `builder-map` skill, so usually absent; skip this step when it is). This is the second-stream feed — "who's adopting the watched stack" becomes idea fodder.
 
 Extract two things:
 
@@ -144,7 +157,7 @@ Ideas already shipped (skill/prototype/PR match found):
 - ...
 
 ## High-Potential Unscreened
-Top 3 ideas not yet screened by idea-validator that look most promising by keyword signal alone:
+Top 3 ideas not yet screened by `idea-forge validate` that look most promising by keyword signal alone:
 - [idea] — [one-liner]
 - ...
 
@@ -208,13 +221,13 @@ Then record the `FORCE_REPLY_OFFERED: idea-pipeline::pick` marker in step 10. A 
 Append to `memory/logs/${today}.md`:
 
 ```markdown
-## Idea Pipeline
+### idea-pipeline
 - **Total ideas:** N_total
-- **Screened:** N_screened (by idea-validator)
+- **Screened:** N_screened (by `idea-forge validate`)
 - **Executed:** N_executed (skill/prototype/PR match)
 - **Gap:** N_gap unexecuted ideas
 - **Top pick:** [idea name] — [priority score]
-- **Ecosystem feed:** [available / unavailable] — [N underserved categories, M adjacent verticals] (from builder-map ecosystem.md, last run [date])
+- **Ecosystem feed:** [available / unavailable] — [N underserved categories, M adjacent verticals] (from ecosystem.md, last written [date])
 - **Filter:** [var value or "none"]
 - **Notification:** sent
 - **Force-reply offer:** [offered / skipped — already offered in last 2 days / skipped — no picks]
@@ -228,4 +241,4 @@ None. Uses local file reads and `gh` CLI (authenticated via GITHUB_TOKEN in work
 
 ## Network Note
 
-No external network calls in the main logic. `gh pr list` uses the `gh` CLI which handles auth internally (no curl + token pattern needed). WebSearch not required — narrative context comes from `memory/topics/market-context.md` if a `market-context` skill has populated it.
+No external network calls in the main logic. `gh pr list` uses the `gh` CLI which handles auth internally (no curl + token pattern needed). WebSearch not required — narrative context comes from `memory/topics/market-context.md` if present (no shipped skill writes it any more; it is operator-maintained).
