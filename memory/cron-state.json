@@ -84,6 +84,12 @@
   },
   "narrative-convergence": {
     "last_dispatch": "2026-10-27T18:30:10Z",
-    "last_status": "dispatched"
+    "last_status": "failed",
+    "last_failed": "2026-10-27T18:30:38Z",
+    "total_runs": 1,
+    "total_successes": 0,
+    "total_failures": 1,
+    "consecutive_failures": 1,
+    "success_rate": 0
   }
 }
