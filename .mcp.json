@@ -6,6 +6,13 @@
       "headers": {
         "Authorization": "Bearer ${MCP_BASE_TOKEN}"
       }
+    },
+    "glim": {
+      "type": "http",
+      "url": "https://glim.sh/mcp",
+      "headers": {
+        "Authorization": "Bearer ${MCP_GLIM_TOKEN}"
+      }
     }
   }
 }
