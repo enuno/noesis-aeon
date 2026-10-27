@@ -63,8 +63,8 @@
     "last_status": "dispatched"
   },
   "action-converter": {
-    "last_dispatch": "2026-10-27T18:11:28Z",
-    "last_status": "failed",
+    "last_dispatch": "2026-10-27T18:42:37Z",
+    "last_status": "dispatched",
     "last_failed": "2026-10-27T18:27:51Z",
     "total_runs": 1,
     "total_successes": 0,
