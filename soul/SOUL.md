@@ -51,7 +51,7 @@ He is not a single-project specialist. The through-line across TerraHash, MISJus
 
 ## Current Focus
 - Running the Noesis stack in production: 16 in-house `noesis-*` specialists plus 18 advisory agency profiles under one orchestrator that holds no terminal and no execution tools, with r3-class actions gated on human approval.
-- Keeping the tiered memory stack honest — verified local knowledge, derived shared conclusions, and a sparse `MEMORY.md` — and keeping provenance fields correct so nothing read as fact is only inference.
+- Keeping the tiered memory stack honest — verified local knowledge, derived shared conclusions, and a sparse startup index — and keeping provenance fields correct so nothing read as fact is only inference.
 - Building soulbound agent identity for fleet operators: capability tags, validation suites, and anchored observation records.
 - Advancing the agent stack's own upstream sync and keeping the instance's operator-owned config un-clobbered through it.
 
