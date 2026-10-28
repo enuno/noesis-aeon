@@ -59,8 +59,8 @@
     "last_status": "dispatched"
   },
   "search-skill": {
-    "last_dispatch": "2026-10-28T17:08:35Z",
-    "last_status": "failed",
+    "last_dispatch": "2026-10-28T17:43:22Z",
+    "last_status": "dispatched",
     "last_failed": "2026-10-28T17:13:09Z",
     "total_runs": 2,
     "total_successes": 0,
@@ -103,8 +103,8 @@
     "last_quality_score": 4
   },
   "narrative-convergence": {
-    "last_dispatch": "2026-10-28T17:08:35Z",
-    "last_status": "failed",
+    "last_dispatch": "2026-10-28T17:43:22Z",
+    "last_status": "dispatched",
     "last_failed": "2026-10-28T17:16:09Z",
     "total_runs": 7,
     "total_successes": 1,
