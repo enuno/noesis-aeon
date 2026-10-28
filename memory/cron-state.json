@@ -44,8 +44,8 @@
     "last_quality_score": 4
   },
   "auto-merge": {
-    "last_dispatch": "2026-10-28T16:35:09Z",
-    "last_status": "failed",
+    "last_dispatch": "2026-10-28T17:08:35Z",
+    "last_status": "dispatched",
     "last_failed": "2026-10-28T16:41:20Z",
     "total_runs": 2,
     "total_successes": 0,
@@ -59,8 +59,8 @@
     "last_status": "dispatched"
   },
   "search-skill": {
-    "last_dispatch": "2026-10-28T16:35:09Z",
-    "last_status": "failed",
+    "last_dispatch": "2026-10-28T17:08:35Z",
+    "last_status": "dispatched",
     "last_failed": "2026-10-28T16:35:41Z",
     "total_runs": 1,
     "total_successes": 0,
@@ -103,8 +103,8 @@
     "last_quality_score": 4
   },
   "narrative-convergence": {
-    "last_dispatch": "2026-10-28T16:35:09Z",
-    "last_status": "failed",
+    "last_dispatch": "2026-10-28T17:08:35Z",
+    "last_status": "dispatched",
     "last_failed": "2026-10-28T16:35:42Z",
     "total_runs": 6,
     "total_successes": 1,
