@@ -104,16 +104,16 @@
   },
   "narrative-convergence": {
     "last_dispatch": "2026-10-28T17:08:35Z",
-    "last_status": "dispatched",
-    "last_failed": "2026-10-28T16:35:42Z",
-    "total_runs": 6,
+    "last_status": "failed",
+    "last_failed": "2026-10-28T17:16:09Z",
+    "total_runs": 7,
     "total_successes": 1,
-    "total_failures": 5,
-    "consecutive_failures": 1,
-    "success_rate": 0.17,
+    "total_failures": 6,
+    "consecutive_failures": 2,
+    "success_rate": 0.14,
     "last_success": "2026-10-27T20:48:43Z",
     "last_quality_score": 3,
-    "last_error": "search_tool\",\"use_tool\",\"workflow\",\"enter_plan_mode\",\"exit_plan_mode\",\"ask_user_question\",\"send_feedback\",\"web_search\",\"web_fetch\",\"image_gen\",\"image_edit\",\"image_to_video\",\"reference_to_video\",\"write"
+    "last_error": "  Bitwarden Secrets Manager: secrets.bitwarden.enabled is true but BWS_ACCESS_TOKEN is not set.  Run `hermes secrets bitwarden setup`.   Bitwarden Secrets Manager: → Run `hermes secrets bitwarden se"
   },
   "install-skill": {
     "last_status": "success",
