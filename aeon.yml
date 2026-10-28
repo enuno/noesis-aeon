@@ -116,7 +116,7 @@ skills:
   # Markets & crypto
   picks-tracker: { enabled: false, schedule: "0 9 * * 0" } # Sunday 09:00 UTC — 30-day retrospective scoring token + prediction-market picks from logs against current prices; W/H/L + hit rate; honest record-keeping. Pairs with token-pick / monitor-polymarket.
   # Content pipeline
-  soul-builder: { enabled: false, schedule: "0 10 * * 0", var: "name=Elvis Nuno | links=https://github.com/enuno" } # Sunday 10:00 UTC — build a SOUL from any mix of sources (X handle, full name, links), drafting soul/SOUL.md + STYLE.md + examples so every content skill speaks in that voice. Per NoesisPraxis policy, soul-builder opens a PR; NoesisPraxis (operator) approves merges. XAI_API_KEY optional (name/links use built-in WebSearch/WebFetch).
+  soul-builder: { enabled: true, schedule: "0 10 * * 0", var: "name=Elvis Nuno | links=https://github.com/enuno" } # Sunday 10:00 UTC — build a SOUL from any mix of sources (X handle, full name, links), drafting soul/SOUL.md + STYLE.md + examples so every content skill speaks in that voice. Per NoesisPraxis policy, soul-builder opens a PR; NoesisPraxis (operator) approves merges. XAI_API_KEY optional (name/links use built-in WebSearch/WebFetch).
   # Social
   mention-radar: { enabled: false, schedule: "25 7 2/2 * *", var: "" } # every other day — external web/social mentions of the operator's projects (discovery/confusion/friction/competitor taxonomy + engagement opportunities). var: comma-separated project names; falls back to MEMORY.md / memory/topics/projects.md
   # Sports
