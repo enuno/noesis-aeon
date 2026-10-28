@@ -45,7 +45,14 @@
   },
   "auto-merge": {
     "last_dispatch": "2026-10-28T16:35:09Z",
-    "last_status": "dispatched"
+    "last_status": "failed",
+    "last_failed": "2026-10-28T16:35:45Z",
+    "total_runs": 1,
+    "total_successes": 0,
+    "total_failures": 1,
+    "consecutive_failures": 1,
+    "success_rate": 0,
+    "last_error": "search_tool\",\"use_tool\",\"workflow\",\"enter_plan_mode\",\"exit_plan_mode\",\"ask_user_question\",\"send_feedback\",\"web_search\",\"web_fetch\",\"image_gen\",\"image_edit\",\"image_to_video\",\"reference_to_video\",\"write"
   },
   "github-monitor": {
     "last_dispatch": "2026-10-27T17:46:40Z",
