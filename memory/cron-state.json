@@ -44,8 +44,8 @@
     "last_quality_score": 4
   },
   "auto-merge": {
-    "last_dispatch": "2026-10-29T14:00:36Z",
-    "last_status": "failed",
+    "last_dispatch": "2026-10-30T14:01:49Z",
+    "last_status": "dispatched",
     "last_failed": "2026-10-29T14:03:11Z",
     "total_runs": 4,
     "total_successes": 0,
@@ -59,8 +59,8 @@
     "last_status": "dispatched"
   },
   "search-skill": {
-    "last_dispatch": "2026-10-29T14:00:36Z",
-    "last_status": "failed",
+    "last_dispatch": "2026-10-30T14:01:49Z",
+    "last_status": "dispatched",
     "last_failed": "2026-10-29T14:03:11Z",
     "total_runs": 4,
     "total_successes": 0,
