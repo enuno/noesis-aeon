@@ -117,8 +117,8 @@
     "last_quality_score": 4
   },
   "narrative-convergence": {
-    "last_dispatch": "2026-10-30T13:01:29Z",
-    "last_status": "failed",
+    "last_dispatch": "2026-10-31T13:00:10Z",
+    "last_status": "dispatched",
     "last_failed": "2026-10-30T13:04:07Z",
     "total_runs": 10,
     "total_successes": 1,
