@@ -167,8 +167,8 @@
     "last_error": "read-only: workspace write-locked via bwrap   Bitwarden Secrets Manager: secrets.bitwarden.enabled is true but BWS_ACCESS_TOKEN is not set.  Run `hermes secrets bitwarden setup`.   Bitwarden Secrets M"
   },
   "idea-forge": {
-    "last_dispatch": "2026-11-02T09:13:07Z",
-    "last_status": "failed",
+    "last_dispatch": "2026-11-02T09:47:57Z",
+    "last_status": "dispatched",
     "last_failed": "2026-11-02T09:16:32Z",
     "total_runs": 1,
     "total_successes": 0,
