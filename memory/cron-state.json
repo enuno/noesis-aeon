@@ -157,12 +157,12 @@
   },
   "github-trending": {
     "last_dispatch": "2026-11-04T09:03:34Z",
-    "last_status": "dispatched",
-    "last_failed": "2026-11-03T09:07:30Z",
-    "total_runs": 9,
+    "last_status": "failed",
+    "last_failed": "2026-11-04T09:06:54Z",
+    "total_runs": 10,
     "total_successes": 0,
-    "total_failures": 9,
-    "consecutive_failures": 9,
+    "total_failures": 10,
+    "consecutive_failures": 10,
     "success_rate": 0,
     "last_error": "read-only: workspace write-locked via bwrap   Bitwarden Secrets Manager: secrets.bitwarden.enabled is true but BWS_ACCESS_TOKEN is not set.  Run `hermes secrets bitwarden setup`.   Bitwarden Secrets M"
   },
