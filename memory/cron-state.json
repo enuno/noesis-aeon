@@ -178,8 +178,8 @@
     "last_error": "  Bitwarden Secrets Manager: secrets.bitwarden.enabled is true but BWS_ACCESS_TOKEN is not set.  Run `hermes secrets bitwarden setup`.   Bitwarden Secrets Manager: → Run `hermes secrets bitwarden se"
   },
   "aeon-update": {
-    "last_dispatch": "2026-11-02T12:19:10Z",
-    "last_status": "failed",
+    "last_dispatch": "2026-11-09T11:00:08Z",
+    "last_status": "dispatched",
     "last_failed": "2026-11-02T12:23:42Z",
     "total_runs": 3,
     "total_successes": 0,
