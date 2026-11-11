@@ -1,12 +1,12 @@
 {
   "heartbeat": {
     "last_dispatch": "2026-11-11T08:02:04Z",
-    "last_status": "dispatched",
-    "last_failed": "2026-11-10T08:15:35Z",
-    "total_runs": 212,
+    "last_status": "failed",
+    "last_failed": "2026-11-11T08:05:18Z",
+    "total_runs": 213,
     "total_successes": 0,
-    "total_failures": 212,
-    "consecutive_failures": 212,
+    "total_failures": 213,
+    "consecutive_failures": 213,
     "success_rate": 0,
     "last_error": "  Bitwarden Secrets Manager: secrets.bitwarden.enabled is true but BWS_ACCESS_TOKEN is not set.  Run `hermes secrets bitwarden setup`.   Bitwarden Secrets Manager: → Run `hermes secrets bitwarden se"
   },
