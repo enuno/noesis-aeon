@@ -73,8 +73,8 @@
     "last_error": "  Bitwarden Secrets Manager: secrets.bitwarden.enabled is true but BWS_ACCESS_TOKEN is not set.  Run `hermes secrets bitwarden setup`.   Bitwarden Secrets Manager: → Run `hermes secrets bitwarden se"
   },
   "skill-health": {
-    "last_dispatch": "2026-11-24T18:10:31Z",
-    "last_status": "failed",
+    "last_dispatch": "2026-11-25T18:12:08Z",
+    "last_status": "dispatched",
     "last_failed": "2026-11-24T18:14:06Z",
     "total_runs": 30,
     "total_successes": 0,
@@ -84,8 +84,8 @@
     "last_error": "  Bitwarden Secrets Manager: secrets.bitwarden.enabled is true but BWS_ACCESS_TOKEN is not set.  Run `hermes secrets bitwarden setup`.   Bitwarden Secrets Manager: → Run `hermes secrets bitwarden se"
   },
   "self-improve": {
-    "last_dispatch": "2026-11-23T18:14:23Z",
-    "last_status": "failed",
+    "last_dispatch": "2026-11-25T18:12:08Z",
+    "last_status": "dispatched",
     "last_failed": "2026-11-23T18:18:15Z",
     "total_runs": 16,
     "total_successes": 0,
@@ -95,8 +95,8 @@
     "last_error": "  Bitwarden Secrets Manager: secrets.bitwarden.enabled is true but BWS_ACCESS_TOKEN is not set.  Run `hermes secrets bitwarden setup`.   Bitwarden Secrets Manager: → Run `hermes secrets bitwarden se"
   },
   "action-converter": {
-    "last_dispatch": "2026-11-24T18:10:31Z",
-    "last_status": "failed",
+    "last_dispatch": "2026-11-25T18:12:08Z",
+    "last_status": "dispatched",
     "last_failed": "2026-11-24T18:15:07Z",
     "total_runs": 40,
     "total_successes": 1,
